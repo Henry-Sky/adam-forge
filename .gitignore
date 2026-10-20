@@ -1,0 +1,25 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and editor state
+.venv/
+venv/
+.idea/
+.vscode/
+
+# External datasets and model weights (keep directory documentation)
+/data/*
+!/data/README.md
+/checkpoint/*
+!/checkpoint/README.md
+
+# Local logs and generated pipeline outputs
+/logs/*
+!/logs/README.md
+/outputs/
+/renders/output/
+/tests/

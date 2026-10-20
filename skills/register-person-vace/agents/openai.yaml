@@ -1,0 +1,3 @@
+interface:
+  display_name: "人物动画注册与 VACE 融合"
+  short_description: "Register FBX people into calibrated videos with VACE blending"
