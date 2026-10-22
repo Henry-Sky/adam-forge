@@ -21,5 +21,6 @@ venv/
 /logs/*
 !/logs/README.md
 /outputs/
+/motion-assets/metadata/
 /renders/output/
 /tests/

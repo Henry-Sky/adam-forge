@@ -3,14 +3,14 @@
 Required: --source-data DIR (intrinsics/extrinsics/ego2global), --fbx PATH,
 --xyz X Y Z centre in metres, --lwh L W H dimensions in metres, --output PNG.
 Optional: --size PX square image (default 768), --heading RAD (default 0),
---samples N (default 32), --reference-root DIR (default ../asset-forge).
+--samples N (default 32), --reference-root DIR (default: this project).
 Uses CPU Blender discovered by utils.blender_runtime. Camera reframing occurs
 before rendering; no distant-character pixel crop is enlarged.
 
 Example:
-  python tools/render_fbx_reference.py \
+  python renders/render_fbx_reference.py \
     --source-data data/waymo-asset-data/clip-00132-00/source-data \
-    --fbx 'tests/Waving(3).fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
+    --fbx 'motion-assets/fbx/waving.fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
     --output tests/clip-00132-00/vace_crop/reference.png
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ def main():
     p.add_argument('--size',type=int,default=768)
     p.add_argument('--heading',type=float,default=0.)
     p.add_argument('--samples',type=int,default=32)
-    p.add_argument('--reference-root',type=Path,default=ROOT.parent/'asset-forge')
+    p.add_argument('--reference-root',type=Path,default=ROOT)
     args=p.parse_args()
     if args.size<=0 or args.samples<=0 or not np.isfinite([*args.xyz,*args.lwh,args.heading]).all() or min(args.lwh)<=0:
         p.error('size/samples and LWH must be positive; geometry must be finite')
@@ -47,7 +47,7 @@ def main():
     frame={'frame_id':0,'width':args.size,'height':args.size,'near':.05,'far':200.}
     for key,folder in [('intrinsic','intrinsics'),('extrinsic','extrinsics'),('world_from_ego','ego2global')]:
         frame[key]=np.loadtxt(args.source_data/folder/'000000.txt').tolist()
-    settings=yaml.safe_load((args.reference_root/'configs/optimization-registration.yaml').read_text())['render']['blender']
+    settings=yaml.safe_load((args.reference_root/'configs/render.yaml').read_text())['render']['blender']
     settings['samples']=args.samples
     with tempfile.TemporaryDirectory(prefix='fbx-reference-') as temporary:
         staging=Path(temporary)
@@ -59,7 +59,7 @@ def main():
         job_path=staging/'job.json';job_path.write_text(json.dumps(job))
         with args.output.with_suffix('.log').open('w') as log:
             subprocess.run([find_blender(),'--background','--factory-startup','--python-exit-code','1',
-                            '--python',str(ROOT/'tools/register_fbx_animation.py'),'--',str(job_path)],
+                            '--python',str(ROOT/'renders/register_fbx_animation.py'),'--',str(job_path)],
                            stdout=log,stderr=subprocess.STDOUT,check=True,timeout=600)
         rgba=cv2.imread(str(staging/'reference_rgba.png'),cv2.IMREAD_UNCHANGED)
         if rgba is None or rgba.shape[2]!=4 or not np.any(rgba[:,:,3]):

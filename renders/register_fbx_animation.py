@@ -11,27 +11,30 @@ Arguments:
     --mode: mesh (default) or dwpose-box: black out the fixed world box's full
         projected rectangle and draw FBX-derived DWPose-style body bones inside.
         Head joint is a head proxy; unavailable face/finger joints are omitted.
+        Skeleton-only FBX files use their first-frame bone bounds for scaling.
         Also writes <output_stem>_pose.json with per-frame pixels and rectangles.
     --mask: optional positive scale for an additional projected-box mask MP4.
     --mask-bone: optional bone mask dilation scale, >=1 (1 keeps two-pixel lines).
     --heading: heading about the reference world's +Z, in radians (default 0).
     --animation-fps: optional animation FPS override; otherwise use FBX import FPS.
+    --fit-bounds: first-frame (default) or clip; clip fits a single fixed scale
+        and center to bounds sampled over the entire output animation segment.
     --device: Cycles CPU, OPTIX or CUDA device type (default CPU).
     --blender: Blender executable name or path (default blender).
-    --reference-root: asset-forge checkout supplying registration render helpers
-        and configs (default: ../asset-forge). Logs are written beside --output.
+    --reference-root: checkout supplying registration render helpers and configs
+        (default: this project). Logs are written beside --output.
     --reference-frame: optionally save first rendered FBX frame as RGBA PNG
         (mesh mode only; default: no export), before compositing on origin video.
 
 Example (supply an animated model.fbx and matching clip data):
-    python tools/register_fbx_animation.py --asset-root data/l3_asset_data \
+    python renders/register_fbx_animation.py --asset-root data/l3_asset_data \
         --video-root data/l3_video_data --clip 0 --part 0 \
         --fbx model.fbx --xyz 3 35 1 --lwh 1.5 1.5 2 \
         --output output.mp4 --mask 1.1 --mask-bone 1.1
 
-    python tools/register_fbx_animation.py --asset-root data/waymo-asset-data \
+    python renders/register_fbx_animation.py --asset-root data/waymo-asset-data \
         --video-root data/waymo-video-data --clip 132 --part 0 \
-        --fbx 'tests/Waving(3).fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
+        --fbx 'motion-assets/fbx/waving.fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
         --mode dwpose-box --output tests/clip-00132-00/waving_dwpose_box.mp4
 
 XYZ is the fixed box center in a world frame aligned with the clip part's
@@ -93,10 +96,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--mask-bone", type=float, help="Also output a binary animated-bone mask MP4; dilation scale >=1.")
     parser.add_argument("--heading", type=float, default=0.0, help="Box heading about world +Z in radians (default: 0).")
     parser.add_argument("--animation-fps", type=float, help="Override the FBX import frame rate.")
+    parser.add_argument("--fit-bounds", choices=("first-frame", "clip"), default="first-frame",
+                        help="Use first-frame bounds or the whole output clip for fixed normalization")
     parser.add_argument("--device", choices=("CPU", "OPTIX", "CUDA"), default="CPU", help="Cycles device (default: CPU).")
     parser.add_argument("--blender", default="blender", help="Blender executable name or path.")
-    parser.add_argument("--reference-root", type=Path, default=REPO_ROOT.parent / "asset-forge",
-                        help="Registration renderer/config checkout (default: ../asset-forge)")
+    parser.add_argument("--reference-root", type=Path, default=REPO_ROOT,
+                        help="Registration renderer/config checkout (default: this project)")
     args = parser.parse_args()
     if args.reference_frame is not None and (args.mode != "mesh" or args.reference_frame.suffix.lower() != ".png"):
         parser.error("--reference-frame requires mesh mode and a .png destination")
@@ -274,15 +279,40 @@ def render_in_blender(job_path: Path) -> None:
               for obj in imported if obj.type == "MESH"
               for evaluated in [obj.evaluated_get(depsgraph)]
               for corner in evaluated.bound_box]
+    bounds_source = "mesh"
+    if not points and job["mode"] == "dwpose-box":
+        bounds_source = "bones"
+        points = [evaluated.matrix_world @ endpoint
+                  for obj in imported if obj.type == "ARMATURE"
+                  for evaluated in [obj.evaluated_get(depsgraph)]
+                  for bone in evaluated.pose.bones
+                  for endpoint in (bone.head, bone.tail)]
     if not points:
-        raise ValueError("FBX has no mesh")
+        raise ValueError("FBX has no mesh or usable pose bones")
+    if job.get("fit_bounds", "first-frame") == "clip":
+        for frame in job["frames"][1:]:
+            sample = start + ((frame["frame_id"] / job["fps"] * animation_fps) % (end - start + 1))
+            scene.frame_set(math.floor(sample), subframe=sample % 1)
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            for obj in imported:
+                evaluated = obj.evaluated_get(depsgraph)
+                if bounds_source == "mesh" and obj.type == "MESH":
+                    points.extend(evaluated.matrix_world @ Vector(corner)
+                                  for corner in evaluated.bound_box)
+                elif bounds_source == "bones" and obj.type == "ARMATURE":
+                    points.extend(evaluated.matrix_world @ endpoint
+                                  for bone in evaluated.pose.bones
+                                  for endpoint in (bone.head, bone.tail))
+        scene.frame_set(math.floor(start), subframe=start % 1)
     minimum = Vector(tuple(min(point[axis] for point in points) for axis in range(3)))
     maximum = Vector(tuple(max(point[axis] for point in points) for axis in range(3)))
     extent = maximum - minimum
-    if any(not math.isfinite(v) or v <= 0 for v in extent):
+    if any(not math.isfinite(v) or v < 0 for v in extent) or max(extent) <= 0:
+        raise ValueError(f"Invalid imported mesh extent: {extent}")
+    if bounds_source == "mesh" and any(v <= 0 for v in extent):
         raise ValueError(f"Invalid imported mesh extent: {extent}")
     center = (minimum + maximum) * 0.5
-    uniform_scale = min(job["lwh"][i] / extent[i] for i in range(3))
+    uniform_scale = min(job["lwh"][i] / extent[i] for i in range(3) if extent[i] > 0)
     normalization = Matrix.Scale(uniform_scale, 4)
     normalization = normalization @ Matrix.Translation(-center)
     root = bpy.data.objects.new("FBX_REGISTRATION_ROOT", None)
@@ -292,7 +322,9 @@ def render_in_blender(job_path: Path) -> None:
             world = obj.matrix_world.copy()
             obj.parent = root
             obj.matrix_world = world
-    print(json.dumps({"imported_extent_xyz": list(extent), "animation_range": [start, end],
+    print(json.dumps({"imported_extent_xyz": list(extent), "bounds_source": bounds_source,
+                      "fit_bounds": job.get("fit_bounds", "first-frame"),
+                      "animation_range": [start, end],
                       "animation_fps": animation_fps, "xyz": job["xyz"], "lwh": job["lwh"],
                       "uniform_scale": uniform_scale,
                       "scaled_extent_xyz": [value * uniform_scale for value in extent]}), flush=True)
@@ -411,7 +443,7 @@ def main() -> None:
         raise FileNotFoundError(f"Blender executable not found: {args.blender}")
     config_dir = args.reference_root.resolve() / "configs"
     global_config = yaml.safe_load((config_dir / "global.yaml").read_text())
-    render_config = yaml.safe_load((config_dir / "optimization-registration.yaml").read_text())["render"]
+    render_config = yaml.safe_load((config_dir / "render.yaml").read_text())["render"]
     log_root = output.parent / "registration_logs"
     log_root.mkdir(parents=True, exist_ok=True)
     log_path = log_root / f"fbx_registration_{clip_name}.log"
@@ -469,6 +501,7 @@ def main() -> None:
                 "mode": args.mode,
                 "reference_root": str(args.reference_root.resolve()),
                 "heading": args.heading, "animation_fps": args.animation_fps,
+                "fit_bounds": args.fit_bounds,
                 "mask_scale": args.mask,
                 "mask_bone_scale": args.mask_bone,
                 "fps": fps, "device": args.device, "frames": frames,

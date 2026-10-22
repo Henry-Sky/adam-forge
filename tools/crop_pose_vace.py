@@ -6,12 +6,15 @@ Subcommands:
     --size defaults to 768 pixels (positive multiple of 16).
     --padding defaults to 1.5 times the box union span. One fixed square crop
     spans all frames; raw FRONT TFRecord images follow manifest frame bounds.
+    --registered-video MP4 plus --origin-video MP4 optionally supply the FBX
+    render silhouette inside each edit box while retaining high-resolution context.
     --source-mode raw (default) uses indexed Waymo originals; images instead
     uses aligned source-data/images with their matching calibration resolution.
     Writes control.mp4, mask.mp4 and crop_config.json at native FPS.
   composite --work-dir DIR --generated-video MP4 --origin-video MP4 --output MP4
-    Restores crop scale, copies generated pixels only inside each original box,
-    and encodes H.264 High/YUV420P CRF18 with faststart. The compositor preserves
+    Restores crop scale, feathers generated pixels through the registered FBX
+    silhouette inside each original box, and encodes H.264 High/YUV420P CRF18
+    with faststart. The compositor preserves
     unedited decoded source pixels; final video compression is lossy.
 
 Examples:
@@ -85,6 +88,29 @@ def prepare(args):
     left,top,right,bottom = crop
     side = right-left; scale=args.size/side
     if end-start != len(rects): raise ValueError('Part and pose lengths differ')
+    registered = None
+    origin = None
+    if args.registered_video is not None:
+        if args.origin_video is None:
+            raise ValueError('--origin-video is required with --registered-video')
+        registered = cv2.VideoCapture(str(args.registered_video))
+        origin = cv2.VideoCapture(str(args.origin_video))
+        if not registered.isOpened() or not origin.isOpened():
+            if registered is not None: registered.release()
+            if origin is not None: origin.release()
+            raise ValueError(f'Cannot open registered video: {args.registered_video}')
+        video_info = []
+        for capture in (registered, origin):
+            video_info.append((int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                               int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                               int(capture.get(cv2.CAP_PROP_FRAME_COUNT)),
+                               capture.get(cv2.CAP_PROP_FPS)))
+        if any((w, h) != (width, height) or count != len(rects)
+               or not np.isclose(fps, pose['fps'], rtol=1e-6, atol=1e-6)
+               for w, h, count, fps in video_info):
+            registered.release()
+            origin.release()
+            raise ValueError('Origin and registered videos must match pose dimensions, FPS and frame count')
     args.output_dir.mkdir(parents=True,exist_ok=True)
     control=encoder(args.output_dir/'control.mp4',args.size,args.size,pose['fps'],12)
     mask_writer=encoder(args.output_dir/'mask.mp4',args.size,args.size,pose['fps'],1)
@@ -101,6 +127,42 @@ def prepare(args):
                     for p in rec['body_keypoints_xy']]
             box=((np.array(rec['rectangle_xyxy'])-[left,top,left,top])*scale).tolist()
             drawn,rectangle=draw_pose_box(background,box,points)
+            if registered is not None:
+                drawn=background.copy()
+                ok, registered_frame = registered.read()
+                ok_origin, origin_frame = origin.read()
+                if (not ok or not ok_origin or registered_frame.shape[:2] != (height, width)
+                        or origin_frame.shape[:2] != (height, width)):
+                    raise ValueError(f'Origin or registered video ended or changed size at frame {index}')
+                # Use the actual rendered FBX silhouette as a spatial/color cue,
+                # while keeping the high-resolution source pixels everywhere else.
+                x0,y0,x1,y1=rec['rectangle_xyxy']
+                difference=np.max(np.abs(registered_frame.astype(np.int16)
+                                         - origin_frame.astype(np.int16)),axis=2)
+                silhouette=np.zeros((height,width),np.uint8)
+                silhouette[y0:y1,x0:x1]=(difference[y0:y1,x0:x1]
+                    >= args.registration_threshold).astype(np.uint8)*255
+                count,labels,stats,_=cv2.connectedComponentsWithStats(silhouette)
+                if count <= 1:
+                    raise ValueError(f'No rendered FBX pixels found in frame {index}')
+                component=1+int(np.argmax(stats[1:,cv2.CC_STAT_AREA]))
+                silhouette=(labels==component).astype(np.uint8)*255
+                silhouette=cv2.morphologyEx(silhouette,cv2.MORPH_CLOSE,
+                                             np.ones((3,3),np.uint8))
+                silhouette=cv2.dilate(silhouette,np.ones((3,3),np.uint8),iterations=1)
+                silhouette[:y0,:]=0; silhouette[y1:,:]=0
+                silhouette[:,:x0]=0; silhouette[:,x1:]=0
+                registered_affine=np.array([[scale,0,-left*scale],
+                                            [0,scale,-top*scale]])
+                registered_crop=cv2.warpAffine(registered_frame,registered_affine,
+                    (args.size,args.size),flags=cv2.INTER_CUBIC)
+                alpha_crop=cv2.warpAffine(silhouette,registered_affine,
+                    (args.size,args.size),flags=cv2.INTER_LINEAR).astype(np.float32)/255
+                alpha_crop=cv2.GaussianBlur(alpha_crop,(0,0),1.2)[:,:,None]
+                rx0,ry0,rx1,ry1=rectangle
+                alpha_crop[:ry0]=0; alpha_crop[ry1:]=0
+                alpha_crop[:,:rx0]=0; alpha_crop[:,rx1:]=0
+                drawn=np.rint(registered_crop*alpha_crop+drawn*(1-alpha_crop)).astype(np.uint8)
             mask=np.zeros_like(drawn)
             x0,y0,x1,y1=rectangle;mask[y0:y1,x0:x1]=255
             control.send(drawn.tobytes());mask_writer.send(mask.tobytes())
@@ -112,10 +174,15 @@ def prepare(args):
                             'crop_rectangle_xyxy':rectangle,'body_keypoints_xy':points})
     finally:
         control.close();mask_writer.close()
+        if registered is not None: registered.release()
+        if origin is not None: origin.release()
     if len(records)!=len(rects):raise ValueError('Incomplete source part')
     config={'source':str(source.resolve()),'raw_size':[raw_w,raw_h],
             'origin_size':[width,height],'crop_xyxy':crop,'inference_size':args.size,
-            'crop_scale':scale,'fps':pose['fps'],'count':len(records),'frames':records}
+            'crop_scale':scale,'fps':pose['fps'],'count':len(records),'frames':records,
+            'registered_video':str(args.registered_video.resolve()) if args.registered_video else None,
+            'origin_video':str(args.origin_video.resolve()) if args.origin_video else None,
+            'registration_threshold':args.registration_threshold if args.registered_video else None}
     (args.output_dir/'crop_config.json').write_text(json.dumps(config,indent=2))
     print(json.dumps({k:v for k,v in config.items() if k!='frames'},indent=2))
 
@@ -148,17 +215,42 @@ def composite(args):
     left,top,right,bottom=config['crop_xyxy']
     args.output.parent.mkdir(parents=True,exist_ok=True)
     a=cv2.VideoCapture(str(args.generated_video));b=cv2.VideoCapture(str(args.origin_video))
+    registered=cv2.VideoCapture(config['registered_video'])
+    registered_origin=cv2.VideoCapture(config['origin_video'])
+    if not registered.isOpened() or not registered_origin.isOpened():
+        raise ValueError('Cannot open registered/origin videos for silhouette compositing')
     writer=encoder(args.output,width,height,config['fps'])
     n=0
     try:
         for rec in config['frames']:
             ok,generated=a.read();ok2,background=b.read()
-            if not ok or not ok2 or generated.shape[:2]!=(size,size) or background.shape[:2]!=(height,width):
+            ok3,registered_frame=registered.read();ok4,origin_frame=registered_origin.read()
+            if (not ok or not ok2 or not ok3 or not ok4
+                    or generated.shape[:2]!=(size,size) or background.shape[:2]!=(height,width)
+                    or registered_frame.shape[:2]!=(height,width) or origin_frame.shape[:2]!=(height,width)):
                 raise ValueError('Video frame metadata mismatch')
             restored=cv2.resize(generated,(right-left,bottom-top),interpolation=cv2.INTER_AREA)
             result=background.copy()
             x0,y0,x1,y1=rec['original_rectangle_xyxy']
-            result[y0:y1,x0:x1]=restored[y0-top:y1-top,x0-left:x1-left]
+            difference=np.max(np.abs(registered_frame.astype(np.int16)
+                                     - origin_frame.astype(np.int16)),axis=2)
+            silhouette=np.zeros((height,width),np.uint8)
+            threshold=config.get('registration_threshold') or 25
+            silhouette[y0:y1,x0:x1]=(difference[y0:y1,x0:x1]>=threshold).astype(np.uint8)*255
+            count,labels,stats,_=cv2.connectedComponentsWithStats(silhouette)
+            if count<=1: raise ValueError(f'No registered FBX silhouette at frame {n}')
+            component=1+int(np.argmax(stats[1:,cv2.CC_STAT_AREA]))
+            silhouette=(labels==component).astype(np.uint8)*255
+            silhouette=cv2.morphologyEx(silhouette,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
+            # Permit a feathered halo for VACE edge variation, clipped to the FBX box.
+            silhouette=cv2.dilate(silhouette,np.ones((5,5),np.uint8),iterations=1)
+            alpha=cv2.GaussianBlur(silhouette.astype(np.float32)/255,(0,0),1.2)
+            box=np.zeros((height,width),np.float32);box[y0:y1,x0:x1]=1
+            alpha=np.clip(alpha*box,0,1)[:,:,None]
+            generated_region=restored[y0-top:y1-top,x0-left:x1-left]
+            result[y0:y1,x0:x1]=np.rint(
+                generated_region*alpha[y0:y1,x0:x1]
+                +background[y0:y1,x0:x1]*(1-alpha[y0:y1,x0:x1])).astype(np.uint8)
             fixed=np.ones((height,width),bool);fixed[y0:y1,x0:x1]=False
             if not np.array_equal(result[fixed],background[fixed]):
                 raise ValueError('Unexpected compositor changes outside the edit region')
@@ -166,10 +258,11 @@ def composite(args):
             if n in (0,config['count']//2,config['count']-1):
                 cv2.imwrite(str(args.output.with_name(f'{args.output.stem}_frame{n}.png')),result)
             n+=1
-        if a.read()[0] or b.read()[0]:raise ValueError('Unexpected extra video frames')
+        if a.read()[0] or b.read()[0] or registered.read()[0] or registered_origin.read()[0]:
+            raise ValueError('Unexpected extra video frames')
     finally:
-        writer.close();a.release();b.release()
-    print(f'{args.output.resolve()}: {n} frames, {config["fps"]} FPS; compositor preserves outside pixels')
+        writer.close();a.release();b.release();registered.release();registered_origin.release()
+    print(f'{args.output.resolve()}: {n} frames, {config["fps"]} FPS; silhouette composite preserves outside pixels')
 
 
 def main():
@@ -177,6 +270,12 @@ def main():
     subs=p.add_subparsers(dest='command',required=True)
     a=subs.add_parser('prepare');a.add_argument('--source-data',type=Path,required=True)
     a.add_argument('--pose-json',type=Path,required=True);a.add_argument('--output-dir',type=Path,required=True)
+    a.add_argument('--registered-video',type=Path,
+        help='use the rendered FBX silhouette/color as a cue inside the edit box')
+    a.add_argument('--origin-video',type=Path,
+        help='matching unregistered video used to isolate rendered FBX pixels')
+    a.add_argument('--registration-threshold',type=int,default=25,
+        help='minimum per-pixel RGB difference for the FBX silhouette (default: 25)')
     a.add_argument('--data-root',type=Path,default=ROOT/'data/waymo-source-data')
     a.add_argument('--size',type=int,default=768);a.add_argument('--padding',type=float,default=1.5)
     a.add_argument('--source-mode',choices=('raw','images'),default='raw')
@@ -187,6 +286,10 @@ def main():
     if args.command=='prepare':
         if args.size<=0 or args.size%16 or not np.isfinite(args.padding) or args.padding<1:
             p.error('size must be a positive multiple of 16; padding must be finite and >=1')
+        if args.registered_video is None and args.origin_video is not None:
+            p.error('--origin-video requires --registered-video')
+        if not 0 <= args.registration_threshold <= 255:
+            p.error('--registration-threshold must be between 0 and 255')
         prepare(args)
     else:composite(args)
 

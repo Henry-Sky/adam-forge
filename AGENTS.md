@@ -29,3 +29,8 @@ Git history contains only `Initial commit`, so no convention is established. Use
 ## Security & Configuration
 
 Do not commit credentials, private keys, machine-specific settings, model weights, or datasets. Provide secret-free example configuration and document required environment variables. Use configured external paths for data and checkpoints instead of hard-coded local paths.
+
+## Wan VACE Model Loading
+
+- In this environment, when the complete local model cache is available, load Wan VACE with `--model-dir /tmp/vace-model-cache`. Avoid loading the same large checkpoint shards from the mounted `/mnt/data/asset-forge/checkpoints/Wan2.1-VACE-14B` path because reads there are much slower.
+- Before inference, confirm the cache contains all seven diffusion shards, the UMT5 text encoder, the VAE, and the `google/umt5-xxl` tokenizer. Do not copy model weights into the repository or commit them.

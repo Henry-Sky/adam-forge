@@ -1,0 +1,29 @@
+# 作用范围：FBX 人物注册与参考图渲染的相机裁剪面、超时、材质、光照和采样默认值。
+# 读取入口：renders/register_fbx_animation.py、renders/render_fbx_reference.py；命令行设备参数优先。
+render:
+  near: 0.05
+  far: 200.0
+  timeout_seconds: 3600
+  blender:
+    samples: 8
+    denoise: true
+    transparent: true
+    look: None
+    view_transform: Standard
+    exposure: 0.0
+    gamma: 1.0
+    material:
+      mode: emission_texture
+      emission_strength: 0.6
+      metallic: 0.0
+      roughness: 0.9
+      specular_ior_level: 0.25
+    lighting:
+      mode: world_top_down
+      world_color: [1.0, 1.0, 1.0]
+      world_strength: 0.2
+      key_type: SUN
+      key_color: [1.0, 1.0, 1.0]
+      key_energy: 1.0
+      key_location_camera: [0.0, 0.0, 0.0]
+      key_rotation_euler_deg: [0.0, 0.0, 0.0]

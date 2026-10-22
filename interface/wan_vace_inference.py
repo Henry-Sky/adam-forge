@@ -43,12 +43,12 @@ Parameters:
              inference dependencies, decoding media, or downloading models.
 
 Examples (from repository root):
-  python wan_vace_inference.py --prompt "A car driving down a sunny street" --reference-image data/reference.jpg
-  python wan_vace_inference.py --prompt "A car driving down a sunny street" --control-video data/depth.mp4 --output outputs/depth_result.mp4
-  python wan_vace_inference.py --prompt "A car driving down a sunny street" --control-video data/depth.mp4 --reference-image data/reference.jpg --low-vram
-  python wan_vace_inference.py --prompt "Change the sky to sunset" --control-video data/input.mp4 --mask-video data/sky_mask.mp4 --output outputs/edited.mp4
-  python wan_vace_inference.py --prompt "A sunny street" --reference-image data/reference.jpg --dry-run
-  python wan_vace_inference.py --prompt "Render the person following the pose" --control-video data/pose.mp4 --mask-video data/mask.mp4 --reference-image data/person.png --model-gpus 0 1 2 3 --num-frames 29 --fps 10
+  python interface/wan_vace_inference.py --prompt "A car driving down a sunny street" --reference-image data/reference.jpg
+  python interface/wan_vace_inference.py --prompt "A car driving down a sunny street" --control-video data/depth.mp4 --output outputs/depth_result.mp4
+  python interface/wan_vace_inference.py --prompt "A car driving down a sunny street" --control-video data/depth.mp4 --reference-image data/reference.jpg --low-vram
+  python interface/wan_vace_inference.py --prompt "Change the sky to sunset" --control-video data/input.mp4 --mask-video data/sky_mask.mp4 --output outputs/edited.mp4
+  python interface/wan_vace_inference.py --prompt "A sunny street" --reference-image data/reference.jpg --dry-run
+  python interface/wan_vace_inference.py --prompt "Render the person following the pose" --control-video data/pose.mp4 --mask-video data/mask.mp4 --reference-image data/person.png --model-gpus 0 1 2 3 --num-frames 29 --fps 10
 
 Source: third_party/DiffSynth-Studio/examples/wanvideo/model_inference/Wan2.1-VACE-14B.py
 Weights and tokenizer are loaded only from local paths; missing files cause an
@@ -65,7 +65,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1]
 MODEL_ID = 'Wan-AI/Wan2.1-VACE-14B'
 
 
