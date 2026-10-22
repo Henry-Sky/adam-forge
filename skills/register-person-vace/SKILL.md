@@ -31,7 +31,7 @@ description: Preview and confirm a calibrated world 3D box, select and fit an an
 - 参考图必须等比缩放，按目标人物区域安排位置并补中性灰边，最终尺寸与推理画布一致。检查整个人物、手脚可见且有效人物像素足够。RGBA 先合成灰底再送 VACE，不能直接丢掉 alpha；已有合格参考图直接复用。无外观图且有 mesh 时可重新渲染高清首帧，不能放大远处几十像素的角色充当高清参考。
 - 写实需求使用“photorealistic real human person”，并明确参考图身份/服装。避免正向使用有歧义的“animated person”；负向包含 animated character、cartoon、anime、illustration、CGI。提示词不能保证身份严格复现，需检查结果。用户要求时提供实际完整中英文提示词。
 - 保留用户指定的分辨率；人物有效像素较少时可采用固定局部裁剪，控制、mask、参考图同步变换并记录可逆变换。裁剪不是扩大编辑权限。
-- 先 source 项目 checkpoint 环境配置；完整 `/tmp/vace-model-cache` 存在时优先本地缓存，核验七个 DiT shards、UMT5、VAE 和 tokenizer。不要每轮重新复制权重，不把权重写入仓库。
+- 优先加载完整 `/tmp/vace-model-cache`，核验七个 DiT shards、UMT5、VAE 和 tokenizer；缓存缺失时按 setup/checkpoint_environment.sh 的配置复制/补齐，再从缓存加载。不要以外部软链接冒充本地缓存，不重复复制完整文件，不把权重写入仓库。dry-run 仅验证复制来源。
 - 按当前空闲显存选择 GPU。采用一次正常推理；OOM 时保留日志，只做一次有依据的显存调整。不要干预其他任务，不无边界重跑。用户要求退出会话继续时使用独立后台进程，记录 PID、日志和完成状态；未完成单组重新采样不等于从中间去噪步续跑。
 
 ## 交付

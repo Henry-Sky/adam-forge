@@ -25,12 +25,13 @@ Parameters:
   --seed N: random seed (default: 1).
   --device NAME: torch device (default: cuda; e.g. cuda:0 or cpu).
   --dtype NAME: bfloat16, float16, float32 (default: bfloat16).
-  --model-dir PATH: local Wan2.1-VACE-14B weight directory (default:
-                    WAN_VACE_MODEL_DIR from automatically sourced
-                    setup/checkpoint_environment.sh).
+  --model-dir PATH: local source for filling /tmp/vace-model-cache; a complete
+                    cache always takes priority. Default source:
+                    WAN_VACE_MODEL_DIR from setup/checkpoint_environment.sh.
                     Must directly contain diffusion_pytorch_model*.safetensors,
                     models_t5_umt5-xxl-enc-bf16.pth, Wan2.1_VAE.pth, and
-                    google/umt5-xxl/ tokenizer files. Overrides the environment.
+                    google/umt5-xxl/ tokenizer files. Inference loads only the
+                    complete cache; missing assets are copied before loading.
   --low-vram: enable upstream-style disk/CPU offload (default: disabled;
               budgets currently free CUDA memory with a 4 GiB reserve;
               requires CUDA and additional host memory/disk).
@@ -40,7 +41,7 @@ Parameters:
              pipeline tensors, last holds VACE, middle GPUs split DiT blocks.
              Requires Accelerate; incompatible with --low-vram.
   --dry-run: validate arguments/files and print configuration without importing
-             inference dependencies, decoding media, or downloading models.
+             inference dependencies, decoding media, copying weights or downloading models.
 
 Examples (from repository root):
   python interface/wan_vace_inference.py --prompt "A car driving down a sunny street" --reference-image data/reference.jpg
@@ -66,6 +67,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(HERE))
+from utils.vace_model_cache import ensure_model_cache, resolve_model_files
+
 MODEL_ID = 'Wan-AI/Wan2.1-VACE-14B'
 
 
@@ -87,26 +91,20 @@ def load_checkpoint_environment() -> None:
             os.environ[os.fsdecode(key)] = os.fsdecode(value)
 
 
-def resolve_model_files(directory: Path) -> dict[str, str | list[str]]:
-    """Validate local assets without importing Torch or loading tensor data."""
-    directory = directory.expanduser().resolve()
-    shards = sorted(directory.glob('diffusion_pytorch_model*.safetensors'))
-    index = directory / 'diffusion_pytorch_model.safetensors.index.json'
-    if index.is_file():
-        weight_map = json.loads(index.read_text())['weight_map']
-        shards = sorted({directory / filename for filename in weight_map.values()})
-    if not shards:
-        raise ValueError(f'No diffusion_pytorch_model*.safetensors in {directory}')
-    text_encoder = directory / 'models_t5_umt5-xxl-enc-bf16.pth'
-    vae = directory / 'Wan2.1_VAE.pth'
-    tokenizer = directory / 'google/umt5-xxl'
-    for path in [*shards, text_encoder, vae, tokenizer / 'tokenizer_config.json']:
-        if not path.is_file():
-            raise ValueError(f'Missing local model file: {path}')
-    if not any((tokenizer / name).is_file() for name in ('tokenizer.json', 'spiece.model')):
-        raise ValueError(f'Missing tokenizer.json or spiece.model in {tokenizer}')
-    return {'diffusion': [str(path) for path in shards], 'text_encoder': str(text_encoder),
-            'vae': str(vae), 'tokenizer': str(tokenizer)}
+def cached_model_dir(source: Path | None = None, dry_run: bool = False) -> Path:
+    """Always load a complete temporary cache; source is used only to fill it."""
+    cache = Path(os.environ.get('WAN_VACE_CACHE_DIR', '/tmp/vace-model-cache')).expanduser().absolute()
+
+    def configured_source():
+        if source is not None and source.expanduser().resolve() != cache.resolve():
+            return source
+        load_checkpoint_environment()
+        configured = os.environ.get('WAN_VACE_MODEL_DIR')
+        if not configured:
+            raise ValueError('WAN_VACE_MODEL_DIR is unset in setup/checkpoint_environment.sh')
+        return Path(configured)
+
+    return ensure_model_cache(configured_source, cache, dry_run=dry_run)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -138,8 +136,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         load_checkpoint_environment()
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.error(f'Failed to load checkpoint environment: {error}')
-    if args.model_dir is None and os.environ.get('WAN_VACE_MODEL_DIR'):
-        args.model_dir = Path(os.environ['WAN_VACE_MODEL_DIR'])
     if not args.prompt.strip():
         parser.error('--prompt must not be empty')
     if args.control_video is None and args.reference_image is None:
@@ -167,10 +163,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.model_gpus is not None:
         if args.low_vram or len(args.model_gpus) < 4 or len(set(args.model_gpus)) != len(args.model_gpus) or min(args.model_gpus) < 0:
             parser.error('--model-gpus requires >=4 distinct nonnegative GPU IDs and cannot use --low-vram')
-    if args.model_dir is None:
-        parser.error('WAN_VACE_MODEL_DIR is unset after loading setup/checkpoint_environment.sh; supply --model-dir')
-    args.model_dir = args.model_dir.expanduser().resolve()
     try:
+        args.model_dir = cached_model_dir(args.model_dir, dry_run=args.dry_run)
         args.model_files = resolve_model_files(args.model_dir)
     except (ValueError, OSError, KeyError, TypeError) as error:
         parser.error(str(error))

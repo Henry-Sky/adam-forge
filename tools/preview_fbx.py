@@ -10,7 +10,7 @@ allows replacing a preview. --metadata-dir stores timing/logs, defaulting to
 outputs/fbx-previews/ in the project. Temporary PNG frames are removed.
 
 Example:
-  python tools/preview_fbx.py --fbx person-assets/fbx/bboy-uprock-start.fbx \
+  python tools/preview_fbx.py --fbx person-assets/fbx/waving-1.fbx \
     --overwrite
 """
 

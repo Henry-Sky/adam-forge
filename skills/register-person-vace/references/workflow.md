@@ -52,7 +52,7 @@ python interface/register_person.py run --work-dir "$work" \
 
 默认提示词内置于 `utils/person_prompts.py`，中英文含义见 [prompts.md](prompts.md)。按用户风格调整 --prompt/--negative-prompt 或显式 --prompt-config JSON。写实正向避免 animated person，负向排除卡通/动漫/CGI；这些约束不保证身份完全复现。
 
-先检查当前空闲显存。完整 `/tmp/vace-model-cache` 优先，验证七个 diffusion shards、UMT5、VAE 和 tokenizer；显式 --model-dir 优先于默认缓存，配置回退读取 setup/checkpoint_environment.sh。不要每轮复制权重或写入仓库。多卡分片至少四卡，不能把 CUDA_VISIBLE_DEVICES 当作自动聚合；--low-vram 与分片互斥。
+先检查当前空闲显存。完整 `/tmp/vace-model-cache` 始终优先，验证七个 diffusion shards、UMT5、VAE 和 tokenizer。缺失缓存时，从 setup/checkpoint_environment.sh 的 WAN_VACE_MODEL_DIR 配置目录复制/补齐后加载；--model-dir 可指定补齐来源，完整文件不重复复制，不能通过外部软链接加载挂载权重。dry-run 验证来源但不复制。多卡分片至少四卡，不能把 CUDA_VISIBLE_DEVICES 当作自动聚合；--low-vram 与分片互斥。
 
 接口自动同步补控制和 mask 至至少 5 帧的 `4n+1`，原始输出可能有补帧；回贴裁回原帧数/FPS/尺寸。宽高需为 16 的倍数。--dry-run 验证媒体、准备补帧并保存参数，不导入 Torch/加载权重，不能称为完成推理。
 

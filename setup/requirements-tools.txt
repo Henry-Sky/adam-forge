@@ -5,3 +5,4 @@ PyYAML>=6
 opencv-python-headless>=4.8
 imageio[ffmpeg]
 google-crc32c>=1.5
+protobuf>=4.22

@@ -3,6 +3,8 @@
 ## Project Structure & Module Organization
 
 - `checkpoint/` (ckpt) stores model weights; `data/` stores datasets. Both are usually symlinks to external storage. Track only a README in each; do not commit weights or datasets.
+- 3D person assets have moved to `data/3d-person-assets`. Use this repository-relative path to access them; it is a symlink to external storage.
+- Treat symlinks under `data/` and the data they point to as read-only by default. Do not modify, delete, move, replace, or retarget these symlinks or their target data unless the user explicitly requests the change. Write generated outputs to a separate output directory or a temporary location.
 - `configs/` holds project loading and runtime configuration. `docs/` holds project documentation.
 - `interface/` contains independently runnable task interfaces. Comment each entry point's parameters and provide an example command.
 - `setup/` contains environment initialization and weight download scripts. Try a suitable domestic mirror first, then fall back to the official source. Report failures clearly.
@@ -34,3 +36,4 @@ Do not commit credentials, private keys, machine-specific settings, model weight
 
 - In this environment, when the complete local model cache is available, load Wan VACE with `--model-dir /tmp/vace-model-cache`. Avoid loading the same large checkpoint shards from the mounted `/mnt/data/asset-forge/checkpoints/Wan2.1-VACE-14B` path because reads there are much slower.
 - Before inference, confirm the cache contains all seven diffusion shards, the UMT5 text encoder, the VAE, and the `google/umt5-xxl` tokenizer. Do not copy model weights into the repository or commit them.
+- If the temporary cache is missing or incomplete, copy only missing/incomplete assets from the `WAN_VACE_MODEL_DIR` configured by `setup/checkpoint_environment.sh` into the cache before inference. Always load the completed cache, keep source storage read-only, and do not re-copy complete assets. Dry runs validate the source without copying weights.

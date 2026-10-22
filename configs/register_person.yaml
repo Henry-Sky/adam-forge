@@ -1,0 +1,86 @@
+# 作用范围：interface/register_person.py 的分阶段人物注册参数。
+# 从仓库根目录运行；所有相对路径均相对于当前工作目录。
+# 示例：python interface/register_person.py preview --config configs/register_person.yaml
+# 查看 box_preview.png/mp4 并确认位置后：
+# python interface/register_person.py prepare --config configs/register_person.yaml --confirm-position
+# python interface/register_person.py run --config configs/register_person.yaml --dry-run
+# 命令行参数优先；确认输入和模型后，去掉 --dry-run 执行推理。
+# data/ 下的软链接和目标数据仅作输入，输出写入独立 work_dir。
+common:
+  # 输出根目录；preview 自动创建 {clip}-{x}_{y}_{z} 子目录。
+  # 首次无计数后缀，重名依次追加 -1、-2；后续阶段接续最近一次成功预览。
+  # 可通过 --task-dir 子目录名选择已有任务（prepare/run/compose）。
+  work_dir: outputs
+
+preview:
+  source: data/waymo-source-data # 只读原始数据根目录，包含 metadata.csv。
+  clip: 610 # 按 metadata.csv 的 clip_id 数值匹配，610 与 "00610" 等价。
+  frame_start: 0 # 原始帧起点（含）。
+  frame_count: null # 必须 ≥5 且满足 4n+1，如 5、9、17；null 将剩余帧数向下裁至满足约束的最大值。
+  # 示例世界框中心 XYZ、长宽高 LWH（米），heading 绕 Z 轴（弧度）。
+  # 必须按实际场景调整，并重新预览；同一 work_dir 下自动区分重复任务。
+  xyz: [0.11610073, 26.53805042, 1.80765938]
+  lwh: [5, 5, 10]
+  heading: 0
+
+prepare:
+  task_dir: null # null 接续最近一次成功预览；可填写任务子目录名。
+  fbx: data/3d-person-assets/fbx/waving-1.fbx
+  reference_image: data/3d-person-assets/references/traffic-officer-reference.png
+  reference_scale: 1.0
+  fit_bounds: clip
+  animation_fps: null # null 表示使用 FBX 自带帧率。
+  blender: null # 使用 BLENDER_BIN、PATH 或本机安装目录发现。
+  skip_mesh: false
+  render_device: CPU
+
+run:
+  task_dir: null # null 接续最近一次成功预览/准备的任务。
+  # 优先加载 /tmp/vace-model-cache；缺失时按 checkpoint_environment.sh 配置补齐缓存。
+  # model_dir 可指定缓存补齐来源；完整缓存存在时直接复用，不从来源目录加载。
+  model_dir: null
+  model_gpus: null # 多卡时填写至少四个不同物理 GPU ID，如 [0, 1, 2, 3]。
+  device: cuda:0
+  low_vram: false
+  steps: 50
+  seed: 1
+  cfg_scale: 5.0
+  vace_scale: 1.0
+  reference_image: null # null 沿用 prepare 阶段准备的参考图。
+  reference_scale: 1.0
+  # 复用外部 DWPose 时以下四项须同时填写；正常分阶段流程保持 null。
+  origin_video: null
+  control_video: null
+  mask_video: null
+  pose_json: null
+  prompt_config: null # 可选提示词 JSON；下方显式提示词优先，均为 null 时使用内置提示词。
+  # 来自 register-person-vace skill：写实真人、严格参考图外观、逐帧遵循姿态并保留背景。
+  prompt: >-
+    Generate a photorealistic real human person in the editable region,
+    as captured by a live-action camera in the original scene.
+    Strictly follow the reference image for the person's facial identity,
+    facial features, hairstyle, clothing, accessories, colors and body proportions.
+    Preserve visible garment details. Render natural human skin texture,
+    realistic fabric texture and physically plausible lighting.
+    Follow the body pose control in every frame, matching joint positions,
+    gestures, timing and location. Render a solid, fully clothed human body
+    with natural anatomy, coherent surface detail and smooth temporally
+    consistent motion. Match scene scale, perspective, lighting and camera
+    movement. Keep the feet in physically plausible contact with the ground.
+    Replace the black rectangle and colored skeleton with the person while
+    preserving the unmasked environment.
+  # 排除动漫/动画/CGI 风格、骨架黑框残留、人体畸形、身份服装变化和闪烁。
+  negative_prompt: >-
+    colored skeleton, pose lines, black rectangle, stick figure, wireframe,
+    duplicate person, extra limbs, malformed anatomy, floating body,
+    transparent body, flickering, changing identity, changing clothing,
+    blurry character, background changes, animated character, cartoon character,
+    anime, manga, illustration, cel shading, 2D animation, 3D animation,
+    CGI, 3D render, stylized character, doll, toy, plastic skin
+  dry_run: false
+  overwrite: false
+
+compose:
+  task_dir: null
+  generated_video: null # null 使用当前工作目录记录的生成视频。
+  overwrite: false

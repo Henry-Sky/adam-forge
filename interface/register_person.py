@@ -2,7 +2,9 @@
 r"""Register an FBX person and blend its projected DWPose with local Wan VACE.
 
 Stages:
-  preview: --source-data DIR --origin-video MP4 --xyz X Y Z --lwh L W H
+  Each stage accepts --config configs/register_person.yaml; CLI values override
+  YAML values. Paths are relative to the current working directory.
+  preview: [--source data/waymo-source-data] --clip ID --xyz X Y Z --lwh L W H
            [--heading RAD] --work-dir DIR. Draw only the proposed 3D box.
   prepare: --work-dir DIR --confirm-position --fbx FBX [--blender BIN]
            [--fit-bounds clip|first-frame] [--animation-fps FPS] [--skip-mesh]
@@ -18,16 +20,16 @@ Stages:
            existing generation without loading any model.
 
 Example (from repository root; replace coordinates after reviewing the box):
-  python interface/register_person.py preview \
-    --source-data data/waymo-asset-data/clip-00610-00/source-data \
-    --origin-video data/waymo-video-data/clip-00610-00/videos/video_origin.mp4 \
-    --xyz 0.11610073 26.53805042 1.80765938 --lwh 5 5 10 \
-    --work-dir outputs/person-bboy
-  python interface/register_person.py prepare --work-dir outputs/person-bboy \
-    --confirm-position --fbx person-assets/fbx/bboy-uprock-start.fbx \
-    --reference-image person-assets/references/traffic-officer-reference.png
-  python interface/register_person.py run --work-dir outputs/person-bboy \
-    --model-gpus 0 1 2 3
+  python interface/register_person.py preview --config configs/register_person.yaml
+  python interface/register_person.py prepare --config configs/register_person.yaml \
+    --confirm-position
+  python interface/register_person.py run --config configs/register_person.yaml \
+    --dry-run
+
+The example config selects clip 610 (metadata ID 00610) and output root outputs.
+Preview creates {clip}-{x}_{y}_{z} below that root, adding -1, -2, ... on reuse.
+Later stages resume the last successful preview; --task-dir NAME selects a
+specific child. Review the plan, then omit --dry-run for inference.
 
 See docs/person-registration.md for standalone existing-input commands, setup,
 frame padding, cache loading, outputs and validation. No models download.
@@ -41,14 +43,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from utils import person_registration
+from utils.person_config import config_arguments
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     stages = parser.add_subparsers(dest="stage", required=True)
     preview = stages.add_parser("preview", help="Draw the candidate world 3D box for review")
-    preview.add_argument("--source-data", type=Path, required=True)
-    preview.add_argument("--origin-video", type=Path, required=True)
+    preview.add_argument("--source", type=Path, default=Path("data/waymo-source-data"),
+                         help="Read-only Waymo root containing metadata.csv")
+    preview.add_argument("--clip", required=True, help="clip_id in source metadata.csv, e.g. 00610")
+    preview.add_argument("--frame-start", type=int, default=0, help="First raw frame index (inclusive)")
+    preview.add_argument("--frame-count", type=int,
+                         help="At least 5 frames, satisfying 4n+1; default: trim remaining frames to 4n+1")
     preview.add_argument("--xyz", type=float, nargs=3, required=True)
     preview.add_argument("--lwh", type=float, nargs=3, required=True)
     preview.add_argument("--heading", type=float, default=0)
@@ -65,7 +72,7 @@ def parse_args(argv=None):
     run.add_argument("--control-video", type=Path, help="Existing DWPose control MP4")
     run.add_argument("--mask-video", type=Path, help="Existing projected-box mask MP4")
     run.add_argument("--pose-json", type=Path, help="Existing per-frame pose/rectangle JSON")
-    run.add_argument("--model-dir", type=Path, help="Override the complete local cache/configured weights")
+    run.add_argument("--model-dir", type=Path, help="Local source to fill missing temporary cache assets")
     run.add_argument("--model-gpus", type=int, nargs="+", help="At least four distinct physical GPU IDs")
     run.add_argument("--device", default="cuda:0")
     run.add_argument("--low-vram", action="store_true")
@@ -82,16 +89,38 @@ def parse_args(argv=None):
     compose.add_argument("--generated-video", type=Path)
     compose.add_argument("--overwrite", action="store_true")
     for stage in (preview, prepare, run, compose):
-        stage.add_argument("--work-dir", type=Path, required=True)
+        stage.add_argument("--config", type=Path, help="Registration YAML; explicit CLI arguments take priority")
+        stage.add_argument("--work-dir", type=Path, required=True, help="Root for registration task directories")
+    for stage in (prepare, run, compose):
+        stage.add_argument("--task-dir", type=Path, help="Task child name; default: last successful preview")
     for stage in (prepare, run):
         stage.add_argument("--reference-image", type=Path)
         stage.add_argument("--reference-scale", type=float, default=1.0)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config", type=Path)
+    config_args, remaining = config_parser.parse_known_args(argv)
+    if config_args.config and remaining and remaining[0] in stages.choices:
+        stage_name = remaining[0]
+        try:
+            defaults = config_arguments(config_args.config, stage_name, stages.choices[stage_name])
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        argv = [stage_name, *defaults, *remaining[1:]]
     return parser, parser.parse_args(argv)
 
 
 def main(argv=None):
     parser, args = parse_args(argv)
     try:
+        if args.stage != "preview":
+            from utils.person_tasks import resolve_task
+
+            # Standalone VACE imports retain their explicit fresh work directory.
+            importing = args.stage == "run" and args.origin_video is not None
+            if not importing or args.task_dir is not None:
+                args.work_dir = resolve_task(args.work_dir, args.task_dir)
+            print(f"Task directory: {args.work_dir}", flush=True)
         if args.stage == "compose":
             person_registration.finalize(args.work_dir, args.generated_video, args.overwrite)
         else:

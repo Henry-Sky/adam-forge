@@ -5,7 +5,8 @@ Arguments:
     --mask-video: input binary editing mask MP4 path, aligned with the control.
     --output: destination generated MP4 path.
     --prompt, --negative-prompt: text conditioning, both empty by default.
-    --model-dir: override WAN_VACE_MODEL_DIR from setup/checkpoint_environment.sh.
+    --model-dir: local source for missing /tmp/vace-model-cache assets; default
+        source is WAN_VACE_MODEL_DIR from setup/checkpoint_environment.sh.
     --device: CUDA device (default cuda:0).
     --steps: denoising steps per window (default 50).
     --seed: initial random seed, incremented per window (default 1).
@@ -26,12 +27,10 @@ Logs use configs/global.yaml paths.log_root. No pipeline metadata is modified.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import math
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
@@ -72,26 +71,12 @@ def parse_arguments() -> argparse.Namespace:
     return args
 
 
-def resolve_model_files(override: Path | None) -> tuple[Path, list[Path]]:
-    if override is None:
-        result = subprocess.run(
-            ["bash", "-c", 'set -e; source "$1"; printf "%s" "$WAN_VACE_MODEL_DIR"',
-             "_", str(REPO_ROOT / "setup/checkpoint_environment.sh")],
-            check=True, capture_output=True, text=True,
-        )
-        if not result.stdout:
-            raise ValueError("WAN_VACE_MODEL_DIR is empty")
-        override = Path(result.stdout)
-    root = override.resolve()
-    index = json.loads((root / "diffusion_pytorch_model.safetensors.index.json").read_text(encoding="utf-8"))
-    shards = [root / name for name in sorted(set(index["weight_map"].values()))]
-    if not shards:
-        raise ValueError("Diffusion shard index is empty")
-    for path in [*shards, root / "models_t5_umt5-xxl-enc-bf16.pth", root / "Wan2.1_VAE.pth",
-                 root / "google/umt5-xxl/tokenizer.json", root / "google/umt5-xxl/tokenizer_config.json"]:
-        if not path.is_file():
-            raise FileNotFoundError(path)
-    return root, shards
+def resolve_model_files(override: Path | None, dry_run: bool = False) -> tuple[Path, list[Path]]:
+    from interface.wan_vace_inference import cached_model_dir
+    from utils.vace_model_cache import resolve_model_files as assets
+
+    root = cached_model_dir(override, dry_run=dry_run)
+    return root, [Path(path) for path in assets(root)["diffusion"]]
 
 
 def main() -> None:
@@ -112,7 +97,7 @@ def main() -> None:
         for path in (args.control_video, args.mask_video):
             if not path.is_file():
                 raise FileNotFoundError(path)
-        root, shards = resolve_model_files(args.model_dir)
+        root, shards = resolve_model_files(args.model_dir, dry_run=args.dry_run)
         with imageio.get_reader(str(args.control_video)) as control, imageio.get_reader(str(args.mask_video)) as mask:
             info, mask_info = control.get_meta_data(), mask.get_meta_data()
             size = tuple(info["size"])

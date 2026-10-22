@@ -7,7 +7,6 @@ All task outputs and subprocess logs are confined to the chosen work directory.
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -92,19 +91,23 @@ def command(work, stage, arguments):
 
 
 def preview(args):
-    source = args.source_data.resolve()
-    origin = args.origin_video.resolve()
-    work = prepare_work(args.work_dir, (source, origin))
-    if (work / "registration.json").exists():
-        raise ValueError("Work directory already contains a registration; choose a new directory")
-    info = video_info(origin)
+    from utils.person_source import extract_clip, select_clip, validate_frame_range
+    from utils.person_tasks import create_task, remember_task
+
+    selection = select_clip(args.source, args.clip)
+    validate_frame_range(args.frame_start, args.frame_count)
     if not all(math.isfinite(v) for v in [*args.xyz, *args.lwh, args.heading]) or min(args.lwh) <= 0:
         raise ValueError("XYZ/heading must be finite; LWH must be positive")
+    root = prepare_work(args.work_dir, (args.source,))
+    work = prepare_work(create_task(root, selection["clip_id"], args.xyz))
+    print(f"Task directory: {work}", flush=True)
+    source, origin = extract_clip(selection, work / "inputs", args.frame_start, args.frame_count)
+    info = video_info(origin)
     manifest = dict(schema_version=1, state="previewing", origin_video=str(origin),
                     source_data=str(source), video=info.to_dict(), xyz=args.xyz,
                     lwh=args.lwh, heading=args.heading,
                     calibration_signature=calibration_signature(source),
-                    input_signatures={"origin": signature(origin)})
+                    input_signatures={"origin": signature(origin)}, source_selection=selection)
     write_manifest(work, manifest)
     try:
         step = command(work, "preview", [
@@ -117,6 +120,7 @@ def preview(args):
             raise ValueError("The box is not visible; adjust XYZ/LWH before registration")
         manifest.update(state="awaiting_position_confirmation", commands=[step])
         write_manifest(work, manifest)
+        remember_task(root, work)
     except Exception as error:
         manifest.update(state="failed", failed_stage="preview", error=str(error))
         write_manifest(work, manifest)
@@ -259,28 +263,10 @@ def import_existing(args):
     return manifest
 
 
-def choose_model_dir(explicit):
-    from interface.wan_vace_inference import load_checkpoint_environment, resolve_model_files
+def choose_model_dir(explicit, dry_run=False):
+    from interface.wan_vace_inference import cached_model_dir
 
-    if explicit:
-        resolve_model_files(explicit)
-        return explicit.expanduser().resolve()
-    cache = Path(os.environ.get("WAN_VACE_CACHE_DIR", "/tmp/vace-model-cache"))
-    if cache.is_dir():
-        try:
-            files = resolve_model_files(cache)
-            if len(files["diffusion"]) != 7:
-                raise ValueError("Expected seven VACE diffusion shards")
-            return cache.resolve()
-        except (ValueError, KeyError, FileNotFoundError) as error:
-            print(f"Incomplete local VACE cache: {error}; checking configured model path.", file=sys.stderr)
-    load_checkpoint_environment()
-    configured = os.environ.get("WAN_VACE_MODEL_DIR")
-    if not configured:
-        raise ValueError("No local model cache or configured WAN_VACE_MODEL_DIR")
-    model = Path(configured)
-    resolve_model_files(model)
-    return model.resolve()
+    return cached_model_dir(explicit, dry_run=dry_run)
 
 
 def run(args):
@@ -301,7 +287,7 @@ def run(args):
     validate_mask(manifest["mask_video"], pose, info)
     if info.width % 16 or info.height % 16:
         raise ValueError("Native VACE inference needs width and height divisible by 16")
-    model_dir = choose_model_dir(args.model_dir)
+    model_dir = choose_model_dir(args.model_dir, dry_run=args.dry_run)
     config = (json.loads(args.prompt_config.read_text()) if args.prompt_config else
               dict(prompt=DEFAULT_PROMPT, negative_prompt=DEFAULT_NEGATIVE_PROMPT))
     prompt = args.prompt if args.prompt is not None else config["prompt"]

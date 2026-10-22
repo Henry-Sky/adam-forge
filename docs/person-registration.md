@@ -13,21 +13,45 @@ bash setup/install_environment.sh --help
 
 Blender 可在 `--blender` 显式指定，或通过 `BLENDER_BIN`、PATH、本机安装目录发现。需要 VACE 时按 `setup/install_environment.sh` 配置本地 DiffSynth/PyTorch 和已下载权重；`preview`、`prepare`、`compose` 不需要加载 VACE 或访问 GPU。注册配置为 `configs/global.yaml` 与 `configs/render.yaml`，无需相邻项目 checkout。
 
-所有命令支持 `--help`。为每个动作/轮次使用独立 `--work-dir`，所有输出和日志均在该目录中，数据集保持只读。
+所有命令支持 `--help`。`--work-dir` 为输出根目录，每次 `preview` 自动创建独立任务子目录，所有任务输出和日志均写入该子目录，数据集保持只读。
+
+人物注册任务参数可在 `configs/register_person.yaml` 中集中设置，分为 `common` 和各阶段配置，阶段值覆盖公共值，显式命令行参数优先。相对路径均相对于运行时工作目录，请从仓库根目录执行：
+
+```bash
+python interface/register_person.py preview --config configs/register_person.yaml
+# 查看框预览、确认位置后再执行 prepare；配置不能代替显式确认。
+python interface/register_person.py prepare --config configs/register_person.yaml --confirm-position
+python interface/register_person.py run --config configs/register_person.yaml --dry-run
+```
+
+当前配置使用 `common.work_dir: outputs`、`preview.source: data/waymo-source-data` 和 `preview.clip: 610`。clip 按数值匹配，整数 `610` 与字符串 `"00610"` 均选中 metadata 中的 `00610`。
+
+任务目录命名为 `{clip}-{x}_{y}_{z}`，clip 至少补齐五位；FBX 和参考图不参与命名。例如 XYZ 为 `[1, 2, 3]` 时，首次生成 `outputs/00610-1_2_3/`，重名时依次生成 `outputs/00610-1_2_3-1/`、`outputs/00610-1_2_3-2/`。`registration.json`、`inputs/` 和框预览位于任务目录内。坐标使用数值文本命名，完整 XYZ/LWH/heading 仍记录在 manifest 中。
+
+`prepare/run/compose` 默认接续同一根目录中最近一次成功的预览，根目录的 `.person-registration-current.json` 记录该选择。可通过 `--task-dir 00610-1_2_3` 显式选择已有任务；该参数只对后续阶段生效。接口也兼容将已有任务目录直接作为 `--work-dir` 传入。直接复用已有 DWPose 输入的 `run` 仍使用显式指定的工作目录。
+
+先按实际场景修改示例坐标；核对 dry-run 结果后去掉 `--dry-run` 运行推理。各阶段保持相同输出根目录，处理多个任务时使用 `--task-dir` 选定任务。人物资产通过 `data/3d-person-assets` 访问，输入保持只读。
+
+配置解析和原始数据提取测试（不加载模型，临时文件位于系统临时目录）：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_person_*.py'
+```
 
 ## 1. 画框确认位置
 
 ```bash
 python interface/register_person.py preview \
-  --source-data data/waymo-asset-data/clip-00610-00/source-data \
-  --origin-video data/waymo-video-data/clip-00610-00/videos/video_origin.mp4 \
+  --source data/waymo-source-data --clip 610 \
   --xyz 0.11610073 26.53805042 1.80765938 --lwh 5 5 10 --heading 0 \
-  --work-dir outputs/person-bboy
+  --work-dir outputs
 ```
 
-这组 XYZ/LWH 仅是 clip-00610-00 的示例。XYZ 是世界框中心，首帧自车为原点，X 右、Y 前、Z 上，单位米；heading 绕 Z，单位弧度。先查看 `box_preview.mp4` 和 `box_preview.png`。修改框时使用新工作目录，不能把旧确认套到新参数上。
+`--source` 默认是 `data/waymo-source-data`，可以省略。`--clip` 对应该目录 `metadata.csv` 的 `clip_id`（例如 `00610`），选取唯一的 FRONT 相机记录；编号不存在、重复或源文件缺失时明确报错。可通过 `--frame-start 0 --frame-count 17` 选择原始帧范围。`frame_count` 必须至少为 5 且满足 `4n+1`（5、9、13、17 等），否则报错。省略或设为 `null` 时，将剩余帧数向下裁为满足约束的最大值（例如 200 → 197），三路标定和图像同步裁剪；不足 5 帧则报错。
 
-输入要求同帧、同尺寸的原视频、images、3×3 intrinsics、4×4 extrinsics（ego→CV camera）和 ego2global。预览只画指定框，不附带车辆轨迹框。
+这组 XYZ/LWH 仅是示例，需按选定的原始 clip 和起始帧重新检查。XYZ 是世界框中心，首帧自车为原点，X 右、Y 前、Z 上，单位米；heading 绕 Z，单位弧度。先查看任务目录中的 `box_preview.mp4` 和 `box_preview.png`。修改框时重新执行预览生成新任务，不能把旧确认套到新参数上。
+
+接口校验 TFRecord CRC，提取原生分辨率 FRONT 图像并按相机内参去畸变，在工作目录 `inputs/` 下生成对齐的 `origin.mp4`、`source-data/images`、3×3 intrinsics、4×4 extrinsics（ego→CV camera）和 ego2global。原始数据及软链接保持只读，无需额外提供 source-data 或原视频。视频 FPS 根据原始时间戳计算并取两位小数，以匹配编码器精度；原始时间戳和帧范围记录在 `inputs/source-data/manifest.json`。预览只画指定框，不附带车辆轨迹框。
 
 ## 2. 选择模型并生成注册/姿态输入
 
@@ -35,10 +59,10 @@ python interface/register_person.py preview \
 
 ```bash
 python interface/register_person.py prepare \
-  --work-dir outputs/person-bboy --confirm-position \
-  --fbx person-assets/fbx/bboy-uprock-start.fbx \
+  --work-dir outputs --confirm-position \
+  --fbx data/3d-person-assets/fbx/waving-1.fbx \
   --fit-bounds clip \
-  --reference-image person-assets/references/traffic-officer-reference.png
+  --reference-image data/3d-person-assets/references/traffic-officer-reference.png
 ```
 
 `--confirm-position` 表示已经看过同一目录的框预览。缺少该参数时，在启动 Blender 前退出。
@@ -54,32 +78,32 @@ python interface/register_person.py prepare \
 ## 3. VACE 融合
 
 ```bash
-python interface/register_person.py run --work-dir outputs/person-bboy \
+python interface/register_person.py run --work-dir outputs \
   --model-gpus 0 1 2 3 --steps 50 --seed 1
 ```
 
 先用 `nvidia-smi` 查看实际空闲显存，选择空闲卡。多卡分片至少四卡，或使用单卡 `--device cuda:0`；显存紧张可选 `--low-vram`，不能与多卡分片同时使用。
 
-模型顺序：显式 `--model-dir` → 完整本地 `/tmp/vace-model-cache` → checkpoint 环境配置。缓存位置可由 `WAN_VACE_CACHE_DIR` 覆盖；模型位置可由 `WAN_VACE_MODEL_DIR` 覆盖。完整缓存需七个 diffusion shards、UMT5、VAE 和 tokenizer，仅读取，不复制权重、不下载模型。
+模型统一优先加载完整的 `/tmp/vace-model-cache`。缓存缺失或不完整时，从 `setup/checkpoint_environment.sh` 中的 `WAN_VACE_MODEL_DIR` 复制/补齐缓存，再从缓存加载；可用 `--model-dir` 指定补齐来源。缓存位置由 `WAN_VACE_CACHE_DIR` 覆盖。完整缓存包含七个 diffusion shards、UMT5、VAE 和 tokenizer，且不能以指向挂载目录的软链接冒充本地文件。采用进程锁、临时文件和原子替换，已有完整文件不重复复制；来源目录保持只读，不下载模型。
 
 默认提示词内置于 `utils/person_prompts.py`，强调照片级真人和参考图外观，负向包含动画、卡通、动漫和 CGI。可通过 `--prompt`、`--negative-prompt` 或显式指定的 `--prompt-config JSON` 覆盖；实际使用的完整文本保存在 `registration.json`。
 
-`--dry-run` 验证媒体、参考图、帧补齐和本地权重路径并保存计划，不导入 Torch、不加载模型。它会生成所需的预处理媒体与任务记录，适合先检查再执行实际 `run`。
+`--dry-run` 验证媒体、参考图、帧补齐和本地权重路径并保存计划，不导入 Torch、不加载模型、不复制大权重。缺少缓存时报告来源和待建立的缓存路径，实际 `run` 才执行复制。它会生成所需的预处理媒体与任务记录，适合先检查再执行实际 `run`。
 
 当前接口保持原画布，宽高需为 16 的倍数。帧数自动同步补控制和 mask 至 `4n+1`（至少 5），VACE 原始输出可能带补帧；最终回贴视频裁回原帧数，FPS 不变。需要局部高分辨率推理时使用 skill 中的 crop 工具，当前统一接口没有隐式裁剪或缩放原场景。
 
-已有输出时需要显式 `--overwrite` 或新工作目录。运行参数、源文件哈希、标定哈希、日志和状态均有记录；输入变化会要求重新准备。`--dry-run` 不代表已完成模型推理。
+同一任务已有推理输出时需要显式 `--overwrite`，或重新执行预览创建新任务。运行参数、源文件哈希、标定哈希、日志和状态均有记录；输入变化会要求重新准备。`--dry-run` 不代表已完成模型推理。
 
 ## 直接复用已有 DWPose 输入
 
 这对应原 tests 实验脚本的用途，需同时提供原视频、控制、mask 和 pose JSON，以验证尺寸、时间和编辑区域一致。使用新的工作目录：
 
 ```bash
-python interface/register_person.py run --work-dir outputs/bboy-existing-inputs \
+python interface/register_person.py run --work-dir outputs/waving-existing-inputs \
   --origin-video data/waymo-video-data/clip-00610-00/videos/video_origin.mp4 \
-  --control-video tests/clip-00610-00/bboy_uprock_start_dwpose_box.mp4 \
+  --control-video tests/clip-00610-00/waving_dwpose_box.mp4 \
   --mask-video tests/clip-00610-00/waving_box_mask.mp4 \
-  --pose-json tests/clip-00610-00/bboy_uprock_start_dwpose_box_pose.json \
+  --pose-json tests/clip-00610-00/waving_dwpose_box_pose.json \
   --reference-image person-assets/references/traffic-officer-reference.png \
   --model-gpus 0 1 2 3
 ```
@@ -91,7 +115,7 @@ python interface/register_person.py run --work-dir outputs/bboy-existing-inputs 
 准备或导入输入后，可单独执行：
 
 ```bash
-python interface/register_person.py compose --work-dir outputs/person-bboy \
+python interface/register_person.py compose --work-dir outputs \
   --generated-video /path/to/generated.mp4
 ```
 
@@ -102,6 +126,7 @@ python interface/register_person.py compose --work-dir outputs/person-bboy \
 | 路径 | 内容 |
 | --- | --- |
 | `registration.json` | 状态、输入校验、参数、完整提示词、命令和输出索引 |
+| `inputs/` | 从 source/clip 提取的原视频、去畸变图像、逐帧标定和来源记录 |
 | `box_preview.mp4/.png/.json` | 待确认的三维框和坐标 |
 | `fbx_bounds.json` | 全动作范围、超框诊断与固定拟合 |
 | `registered.mp4` | 可选的实体注册预览 |
