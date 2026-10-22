@@ -1,9 +1,9 @@
 r"""Convert a person image to the standard VACE appearance-reference format.
 
-Required: --input IMAGE --output PNG. Default: 832x480, RGB(127,127,127),
-fixed aspect ratio, full person within the standard template's person bounds.
-The default template is person-assets/references/traffic-officer-reference.png
-when available; --no-template uses a centered 90%-size canvas instead.
+Required: --input IMAGE --output PNG. Default: 768x768, RGB(127,127,127),
+fixed aspect ratio, full person centered within 90% of the canvas on both axes.
+The larger person dimension is about 691 pixels; preserve complete hands/feet.
+An explicit --template optionally replaces the default centered layout.
 
 --background-mode auto uses alpha first, otherwise removes border-connected
 blue or solid backgrounds. Complex backdrops need a transparent PNG or --mask
@@ -12,7 +12,7 @@ No pose conversion or person synthesis is performed; no CSV is changed.
 
 Examples:
   python tools/convert_person_reference.py --input /path/to/person.png \
-    --output person-assets/references/person-reference.png
+    --output data/3d-person-assets/references/person-reference.png
   python tools/convert_person_reference.py --input /path/to/blue-screen.jpg \
     --background-mode blue --output outputs/person-reference.png
   python tools/convert_person_reference.py --input /path/to/photo.jpg \
@@ -31,17 +31,16 @@ from utils.person_reference import convert_reference
 
 
 def main(argv=None):
-    standard = ROOT / "person-assets/references/traffic-officer-reference.png"
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--template", type=Path, default=standard if standard.is_file() else None)
+    group.add_argument("--template", type=Path, help="Optional reference layout; default: centered 90%% occupancy")
     group.add_argument("--no-template", action="store_true")
     parser.add_argument("--mask", type=Path)
     parser.add_argument("--background-mode", choices=("auto", "alpha", "blue", "solid", "keep"), default="auto")
-    parser.add_argument("--width", type=int, default=832)
-    parser.add_argument("--height", type=int, default=480)
+    parser.add_argument("--width", type=int, default=768)
+    parser.add_argument("--height", type=int, default=768)
     parser.add_argument("--occupancy", type=float, default=.9, help="Person fit area without a template")
     parser.add_argument("--background", type=int, nargs=3, default=[127, 127, 127])
     parser.add_argument("--tolerance", type=float, default=24, help="Solid-background RGB distance threshold")

@@ -72,7 +72,8 @@ python interface/register_person.py prepare \
 - `--animation-fps` 覆盖 FBX 帧率，检查与注册同步使用。默认按 FBX 导入 FPS 推进，并在动画短于原视频时循环。
 - 带网格模型生成 `registered.mp4` 和 `dwpose_box.mp4`；纯骨骼只生成姿态，明确说明没有实体网格。`--skip-mesh` 可省略可选的实体预览。CPU 为渲染默认设备，可通过 `--render-device` 选择已配置的 GPU 后端。
 - DWPose 来源于真实三维关节的相机投影；支持当前 Mixamo 骨架命名。`box_mask.mp4` 与 pose JSON 的投影矩形逐帧阈值校验一致。
-- 已符合视频画布大小的参考图保持原构图，RGBA 合成中性灰底。其他图像等比放入首个可见人物框，`--reference-scale` 可调整大小，出画时拒绝裁切。接口不自动抠图或重画人物；应事先提供合格的去背景参考图。
+- 人物参考图资产统一为 **768×768、RGB(127,127,127) 灰底**。提取人物有效边界后等比放大、居中，最长边占画布约 90%（约 691 像素），保留完整头顶、手脚，四周至少约 38 像素留白。参考图不登记动作 CSV。
+- `tools/convert_person_reference.py --input IMAGE --output PNG` 默认生成上述格式；不要把带大块留白的整张旧图直接缩入人物框。默认 `--reference-scale 1` 保留输入参考图的尺寸与构图，RGBA 合成灰底；VACE 入口按实际推理画布等比适配并居中补边，不拉伸、不按场景人物框二次缩小。接口不自动抠图或重画人物，应事先提供合格的去背景参考图。
 - `--reference-image` 也可以留到 `run` 时提供。启动 VACE 前必须具备参考图。
 
 ## 3. VACE 融合

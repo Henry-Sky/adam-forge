@@ -16,7 +16,7 @@ preview:
   source: data/waymo-source-data # 只读原始数据根目录，包含 metadata.csv。
   clip: 610 # 按 metadata.csv 的 clip_id 数值匹配，610 与 "00610" 等价。
   frame_start: 0 # 原始帧起点（含）。
-  frame_count: null # 必须 ≥5 且满足 4n+1，如 5、9、17；null 将剩余帧数向下裁至满足约束的最大值。
+  frame_count: 101 # 本轮推理 101 帧；必须 ≥5 且满足 4n+1，null 使用剩余全帧并裁至满足约束。
   # 示例世界框中心 XYZ、长宽高 LWH（米），heading 绕 Z 轴（弧度）。
   # 必须按实际场景调整，并重新预览；同一 work_dir 下自动区分重复任务。
   xyz: [0.11610073, 26.53805042, 1.80765938]
@@ -39,7 +39,7 @@ run:
   # 优先加载 /tmp/vace-model-cache；缺失时按 checkpoint_environment.sh 配置补齐缓存。
   # model_dir 可指定缓存补齐来源；完整缓存存在时直接复用，不从来源目录加载。
   model_dir: null
-  model_gpus: null # 多卡时填写至少四个不同物理 GPU ID，如 [0, 1, 2, 3]。
+  model_gpus: [0, 1, 2, 3] # 四卡分配模型权重；按空闲情况填写不同物理 GPU ID。
   device: cuda:0
   low_vram: false
   steps: 50

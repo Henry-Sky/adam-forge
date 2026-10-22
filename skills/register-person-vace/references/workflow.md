@@ -39,7 +39,7 @@ python interface/register_person.py prepare --work-dir "$work" --confirm-positio
 
 用户提供外观图优先；需要去背景时使用可用图像编辑工具，检查人物身份、服装、边缘及尺寸。不要把新的生成图误称为像素不变的原人物抠图。保留原图，记录衍生图。
 
-接口对已有推理画布大小的图保留构图，其他图等比放入人物框并补中性灰边；RGBA 先合成灰底再送 VACE。可用 --reference-scale 调整大小，但不得裁掉手脚。检查有效人物像素，T-pose 横向跨度可能导致人物过小。避免竖图直接拉伸成横图。
+人物参考图资产采用 768×768、RGB(127,127,127) 灰底；按人物有效边界等比放大并居中，最长边约 691 像素（90%），头顶与手脚完整。使用 `tools/convert_person_reference.py --input IMAGE --output PNG` 转换；标准格式默认不用样图。合格资产直接作为参考输入，默认 --reference-scale 1 保持尺寸与构图，不再把整张图缩进场景人物框；VACE 入口按推理画布等比适配、居中补灰边。RGBA 先合成灰底，禁止拉伸或裁掉手脚。
 
 可在 prepare 时提供参考，也可在 run 时提供。无外观图且有 mesh 时可用 `renders/render_fbx_reference.py` 重新渲染高清首帧；其默认首帧归一化若与注册的 clip bounds 不同，需要同步固定变换。不能放大远处几十像素的人物充当高清参考。
 

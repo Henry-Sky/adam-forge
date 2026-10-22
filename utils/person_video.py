@@ -160,9 +160,12 @@ def prepare_reference(source, output, info, rectangle, scale=1.0):
     with Image.open(source) as image:
         image = image.convert("RGBA")
     canvas = Image.new("RGBA", (info.width, info.height), (127, 127, 127, 255))
-    if image.size == canvas.size and scale == 1:
+    # Keep appearance detail independent from the scene's projected edit box.
+    # The VACE entry point handles aspect-preserving canvas adaptation.
+    if scale == 1:
+        canvas = Image.new("RGBA", image.size, (127, 127, 127, 255))
         canvas.alpha_composite(image)
-        placement = [0, 0, info.width, info.height]
+        placement = [0, 0, image.width, image.height]
     else:
         bounds = image.getchannel("A").getbbox()
         if bounds is None:

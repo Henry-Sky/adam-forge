@@ -28,7 +28,7 @@ description: Preview and confirm a calibrated world 3D box, select and fit an an
 ## 外观与推理
 
 - 用户提供的参考图优先。需要去背景时使用可用图像编辑工具，检查人物身份、细节与尺寸是否变化。保留原图；记录衍生参考图和编辑方式。
-- 参考图必须等比缩放，按目标人物区域安排位置并补中性灰边，最终尺寸与推理画布一致。检查整个人物、手脚可见且有效人物像素足够。RGBA 先合成灰底再送 VACE，不能直接丢掉 alpha；已有合格参考图直接复用。无外观图且有 mesh 时可重新渲染高清首帧，不能放大远处几十像素的角色充当高清参考。
+- 人物参考图资产标准为 768×768、中性灰 RGB(127,127,127) 背景；按人物有效边界等比放大居中，最长边约占画布 90%，头顶与手脚完整。合格资产直接传入，不按场景人物框二次缩小；VACE 入口仅按推理画布等比适配并补灰边。RGBA 先合成灰底，不能直接丢掉 alpha。无外观图且有 mesh 时可重新渲染高清首帧，不能放大远处几十像素的角色充当高清参考。
 - 写实需求使用“photorealistic real human person”，并明确参考图身份/服装。避免正向使用有歧义的“animated person”；负向包含 animated character、cartoon、anime、illustration、CGI。提示词不能保证身份严格复现，需检查结果。用户要求时提供实际完整中英文提示词。
 - 保留用户指定的分辨率；人物有效像素较少时可采用固定局部裁剪，控制、mask、参考图同步变换并记录可逆变换。裁剪不是扩大编辑权限。
 - 优先加载完整 `/tmp/vace-model-cache`，核验七个 DiT shards、UMT5、VAE 和 tokenizer；缓存缺失时按 setup/checkpoint_environment.sh 的配置复制/补齐，再从缓存加载。不要以外部软链接冒充本地缓存，不重复复制完整文件，不把权重写入仓库。dry-run 仅验证复制来源。

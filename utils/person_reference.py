@@ -71,7 +71,7 @@ def foreground(image, mode="auto", mask=None, tolerance=24):
 
 
 def convert_reference(source, output, template=None, mask=None, mode="auto",
-                      width=832, height=480, occupancy=.9, background=(127, 127, 127),
+                      width=768, height=768, occupancy=.9, background=(127, 127, 127),
                       tolerance=24, overwrite=False):
     from PIL import Image, ImageOps
 

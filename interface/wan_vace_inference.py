@@ -207,7 +207,7 @@ def run_inference(args: argparse.Namespace) -> None:
     sys.path.insert(0, str(source))
     try:
         import torch
-        from PIL import Image
+        from PIL import Image, ImageOps
         from diffsynth.pipelines.wan_video import ModelConfig, WanVideoPipeline
         from diffsynth.utils.data import VideoData, save_video
     except ImportError as error:
@@ -230,7 +230,14 @@ def run_inference(args: argparse.Namespace) -> None:
             inputs[key] = [data[i] for i in range(args.num_frames)]
     if args.reference_image is not None:
         with Image.open(args.reference_image) as image:
-            inputs['vace_reference_image'] = image.convert('RGB').resize((args.width, args.height))
+            # Appearance references may use a different aspect ratio from the
+            # control video. Keep the entire person and composite alpha on gray.
+            fitted = ImageOps.contain(image.convert('RGBA'), (args.width, args.height),
+                                      method=Image.Resampling.LANCZOS)
+            canvas = Image.new('RGBA', (args.width, args.height), (127, 127, 127, 255))
+            canvas.alpha_composite(fitted, ((args.width-fitted.width)//2,
+                                            (args.height-fitted.height)//2))
+            inputs['vace_reference_image'] = canvas.convert('RGB')
 
     offload = {}
     vram_limit = None

@@ -40,7 +40,6 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from utils.fbx_pose import draw_pose_box
-from utils.waymo_overlay import frames, proto_fields
 
 
 def encoder(path, width, height, fps, crf=18):
@@ -190,11 +189,15 @@ def prepare(args):
 def source_images(source, start, end, mode):
     """Yield only the selected frames, preserving source numbering and resolution."""
     if mode == 'raw':
-        for source_id,frame in enumerate(frames(source)):
+        from utils.person_source import frame_type, records
+        Frame = frame_type()
+        for source_id, payload in enumerate(records(source)):
             if source_id < start: continue
             if source_id >= end: break
-            image=next(i for i in map(proto_fields,frame[4]) if i[1][0]==1)
-            raw=cv2.imdecode(np.frombuffer(image[2][0],np.uint8),cv2.IMREAD_COLOR)
+            frame = Frame()
+            frame.ParseFromString(payload)
+            image = next(image for image in frame.images if image.name == 1)
+            raw=cv2.imdecode(np.frombuffer(image.image,np.uint8),cv2.IMREAD_COLOR)
             if raw is None: raise ValueError('Cannot decode source FRONT image')
             yield source_id,raw
     else:
