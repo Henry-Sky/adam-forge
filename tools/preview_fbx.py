@@ -1,14 +1,17 @@
 """Render a full FBX animation preview on a neutral studio background.
 
-Parameters: --fbx animated FBX, --output MP4, --blender executable,
+Parameters: --fbx animated FBX, --output optional MP4, --blender executable,
 --size square image pixels (default 640), --samples CPU Cycles samples (8).
 Mesh assets retain their materials; skeleton-only assets show colored bones.
 One fixed normalization/camera spans the full animation, at its imported FPS.
-Temporary frames are removed automatically; metadata/ stores timing and logs.
+For person-assets/fbx/NAME.fbx the default output is
+person-assets/previews/NAME.mp4; elsewhere it is beside the FBX. --overwrite
+allows replacing a preview. --metadata-dir stores timing/logs, defaulting to
+outputs/fbx-previews/ in the project. Temporary PNG frames are removed.
 
 Example:
-  python tools/preview_motion_asset.py --fbx motion-assets/fbx/waving.fbx \
-    --output motion-assets/waving.mp4 --blender /path/to/blender
+  python tools/preview_fbx.py --fbx person-assets/fbx/bboy-uprock-start.fbx \
+    --overwrite
 """
 
 import argparse
@@ -158,29 +161,54 @@ def render(job_path):
         print(f"Preview frame {index + 1}/{count}", flush=True)
 
 
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--fbx", type=Path, required=True)
+    parser.add_argument("--output", type=Path, help="Default: matching previews/NAME.mp4 for library FBX")
+    parser.add_argument("--blender", help="Blender binary; default: BLENDER_BIN/PATH/local installation")
+    parser.add_argument("--size", type=int, default=640)
+    parser.add_argument("--samples", type=int, default=8)
+    parser.add_argument("--metadata-dir", type=Path,
+                        default=Path(__file__).resolve().parents[1] / "outputs/fbx-previews")
+    parser.add_argument("--overwrite", action="store_true")
+    args = parser.parse_args(argv)
+    if args.size <= 0 or args.size % 2 or args.samples <= 0:
+        parser.error("Size must be positive/even; samples must be positive")
+    args.fbx = args.fbx.resolve()
+    if not args.fbx.is_file() or args.fbx.suffix.lower() != ".fbx":
+        parser.error("--fbx must be an existing FBX file")
+    if args.output is None:
+        parent = args.fbx.parent
+        output_dir = parent.parent / "previews" if parent.name == "fbx" else parent
+        args.output = output_dir / (args.fbx.stem + ".mp4")
+    args.output = args.output.resolve()
+    if args.output.suffix.lower() != ".mp4":
+        parser.error("--output must be an MP4 file")
+    if args.output.exists() and not args.overwrite:
+        parser.error("Preview already exists; pass --overwrite to replace it")
+    return args
+
+
 def main():
+    args = parse_args()
     import cv2
     import imageio_ffmpeg
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fbx", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--blender", default="blender")
-    parser.add_argument("--size", type=int, default=640)
-    parser.add_argument("--samples", type=int, default=8)
-    args = parser.parse_args()
-    if args.size <= 0 or args.size % 2 or args.samples <= 0:
-        parser.error("Size must be positive/even; samples must be positive")
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root))
+    from utils.blender_runtime import find_blender
+
+    blender = args.blender or find_blender()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    metadata_dir = args.output.parent / "metadata"
-    metadata_dir.mkdir(exist_ok=True)
+    metadata_dir = args.metadata_dir.resolve()
+    metadata_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="motion-preview-") as temporary:
         work = Path(temporary)
         job = dict(fbx=str(args.fbx.resolve()), size=args.size, samples=args.samples, frames_dir=str(work))
         (work / "job.json").write_text(json.dumps(job))
         log_path = metadata_dir / (args.output.stem + ".log")
         with log_path.open("w") as log:
-            subprocess.run([args.blender, "--background", "--factory-startup", "--python-exit-code", "1",
+            subprocess.run([blender, "--background", "--factory-startup", "--python-exit-code", "1",
                             "--python", str(Path(__file__).resolve()), "--", str(work / "job.json")],
                            stdout=log, stderr=subprocess.STDOUT, check=True)
         metadata = json.loads((work / "metadata.json").read_text())

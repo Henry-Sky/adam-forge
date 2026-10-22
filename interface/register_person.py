@@ -24,8 +24,8 @@ Example (from repository root; replace coordinates after reviewing the box):
     --xyz 0.11610073 26.53805042 1.80765938 --lwh 5 5 10 \
     --work-dir outputs/person-bboy
   python interface/register_person.py prepare --work-dir outputs/person-bboy \
-    --confirm-position --fbx motion-assets/fbx/bboy-uprock-start.fbx \
-    --reference-image tests/clip-00610-00/waving_reference_box_832x480_no_blue.png
+    --confirm-position --fbx person-assets/fbx/bboy-uprock-start.fbx \
+    --reference-image person-assets/references/traffic-officer-reference.png
   python interface/register_person.py run --work-dir outputs/person-bboy \
     --model-gpus 0 1 2 3
 

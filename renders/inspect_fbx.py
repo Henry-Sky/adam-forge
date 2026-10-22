@@ -3,7 +3,7 @@
 Example (run from the project root; outputs stay in the selected work directory):
   blender --background --factory-startup --python-exit-code 1 \
     --python renders/inspect_fbx.py -- \
-    --fbx motion-assets/fbx/waving.fbx --fps 10 --frames 29 --lwh 5 5 10 \
+    --fbx person-assets/fbx/bboy-uprock-start.fbx --fps 10 --frames 29 --lwh 5 5 10 \
     --output tests/person-run/fbx_bounds.json
 
 --animation-fps overrides FBX FPS; --margin is fractional padding on the full

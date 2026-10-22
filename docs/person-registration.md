@@ -36,9 +36,9 @@ python interface/register_person.py preview \
 ```bash
 python interface/register_person.py prepare \
   --work-dir outputs/person-bboy --confirm-position \
-  --fbx motion-assets/fbx/bboy-uprock-start.fbx \
+  --fbx person-assets/fbx/bboy-uprock-start.fbx \
   --fit-bounds clip \
-  --reference-image tests/clip-00610-00/waving_reference_box_832x480_no_blue.png
+  --reference-image person-assets/references/traffic-officer-reference.png
 ```
 
 `--confirm-position` 表示已经看过同一目录的框预览。缺少该参数时，在启动 Blender 前退出。
@@ -80,7 +80,7 @@ python interface/register_person.py run --work-dir outputs/bboy-existing-inputs 
   --control-video tests/clip-00610-00/bboy_uprock_start_dwpose_box.mp4 \
   --mask-video tests/clip-00610-00/waving_box_mask.mp4 \
   --pose-json tests/clip-00610-00/bboy_uprock_start_dwpose_box_pose.json \
-  --reference-image tests/clip-00610-00/waving_reference_box_832x480_no_blue.png \
+  --reference-image person-assets/references/traffic-officer-reference.png \
   --model-gpus 0 1 2 3
 ```
 
@@ -113,13 +113,8 @@ python interface/register_person.py compose --work-dir outputs/person-bboy \
 | `results/dwpose_vs_vace_vertical.mp4` | 上下对比 |
 | `logs/`、`registration_logs/` | 命令、Blender 和推理日志 |
 
-## 验证
+## 验证输出
 
-无需模型或数据集的媒体/接口测试（所有产物写入临时目录）：
+通过 `preview` 查看三维框位置，通过 `prepare` 检查全动作范围、实体注册和姿态。运行前可用 `run --dry-run` 核验输入、补帧与模型路径；该命令不会完成模型推理。
 
-```bash
-python -m unittest discover -s tests -p test_person_registration.py -v
-python -m unittest discover -s tests -p test_fbx_pose.py -v
-```
-
-测试覆盖 mask 与 pose 的逐帧一致性、透明参考图处理、等比缩放、末帧补齐、回贴/拼接、帧顺序和无 GPU 的 CLI 导入/计划/回贴链路。Blender 与实际标定的准备阶段可用上面的 `preview`、`prepare` 命令额外验证。真实生成质量仍需查看人物身份、服装、四肢、脚底及边缘。
+完成后核对原视频与最终视频的尺寸、FPS、帧数，检查 mask 与 pose 的逐帧一致性，以及上下对比是否对齐。真实生成质量还需查看人物身份、服装、四肢、脚底及边缘。

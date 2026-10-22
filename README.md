@@ -12,6 +12,7 @@
 | `interface/` | 人物注册分阶段接口和 Wan VACE 推理入口 |
 | `renders/` | Blender 注册助手和 FBX 动作范围检查 |
 | `utils/` | 几何、视频回贴和注册工作流公共模块 |
+| `person-assets/` | 人物参考图、FBX 动作、同名预览视频与动作 CSV 索引 |
 | `tests/` | 测试代码及相关小型样例、实验结果；目录内 README 说明其组成 |
 | `data/` | 数据集挂载点，具体数据由外部路径提供 |
 | `checkpoint/` | 模型权重挂载点，权重不得提交到仓库 |
@@ -32,7 +33,8 @@ bash setup/install_environment.sh --dry-run
 
 ```bash
 python tools/draw_3d_boxes.py --help
-python tools/preview_motion_asset.py --help
+python tools/preview_fbx.py --help
+python tools/convert_person_reference.py --help
 python interface/register_person.py --help
 ```
 
@@ -40,4 +42,4 @@ Waymo 数据路径由 `data/` 下的符号链接提供。模型路径可通过�
 
 人物注册使用 `interface/register_person.py` 的 `preview → prepare → run` 三阶段，支持已有 DWPose 输入复用和单独 `compose`。完整参数、安装、运行及测试命令见[人物注册接口说明](docs/person-registration.md)。
 
-`tests/` 中的样例与实验输出默认由 Git 忽略；已跟踪的测试源码可按接口文档中的命令运行。
+`tests/` 存放本地输入素材与实验结果，默认由 Git 忽略。

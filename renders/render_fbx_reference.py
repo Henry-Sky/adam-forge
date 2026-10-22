@@ -10,7 +10,7 @@ before rendering; no distant-character pixel crop is enlarged.
 Example:
   python renders/render_fbx_reference.py \
     --source-data data/waymo-asset-data/clip-00132-00/source-data \
-    --fbx 'motion-assets/fbx/waving.fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
+    --fbx '/path/to/skinned-person.fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
     --output tests/clip-00132-00/vace_crop/reference.png
 """
 from __future__ import annotations

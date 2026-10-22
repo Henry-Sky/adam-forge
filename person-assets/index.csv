@@ -1,0 +1,5 @@
+motion_id,name,fbx_path,preview_path,has_mesh,description
+bboy-uprock-start,Bboy Uprock 起始动作,fbx/bboy-uprock-start.fbx,previews/bboy-uprock-start.mp4,false,仅动画骨架，预览显示彩色骨骼
+waving-1,挥手动作 1,fbx/waving-1.fbx,previews/waving-1.mp4,true,挥手类型 1，包含网格及动画骨架，143帧/30FPS
+waving-2,挥手动作 2,fbx/waving-2.fbx,previews/waving-2.mp4,true,挥手类型 2，包含网格及动画骨架，17帧/30FPS
+waving-3,挥手动作 3,fbx/waving-3.fbx,previews/waving-3.mp4,true,挥手类型 3，包含网格及动画骨架，96帧/30FPS

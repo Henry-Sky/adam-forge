@@ -34,8 +34,8 @@ Example (supply an animated model.fbx and matching clip data):
 
     python renders/register_fbx_animation.py --asset-root data/waymo-asset-data \
         --video-root data/waymo-video-data --clip 132 --part 0 \
-        --fbx 'motion-assets/fbx/waving.fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
-        --mode dwpose-box --output tests/clip-00132-00/waving_dwpose_box.mp4
+        --fbx 'person-assets/fbx/bboy-uprock-start.fbx' --xyz 5 50 1 --lwh 1.5 1.5 2 \
+        --mode dwpose-box --output tests/clip-00132-00/bboy_uprock_start_dwpose_box.mp4
 
 XYZ is the fixed box center in a world frame aligned with the clip part's
 first ego pose: origin at the first ego, +X right, +Y forward, +Z up (meters).
