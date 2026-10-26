@@ -36,9 +36,10 @@ Parameters:
               budgets currently free CUDA memory with a 4 GiB reserve;
               requires CUDA and additional host memory/disk).
   --no-tiled: disable VAE tiling (default: tiling enabled).
-  --model-gpus ID ID ID ID [...]: split model weights across at least four GPUs
+  --model-gpus ID ID [...]: split model weights across at least two GPUs
              (default: single device). First GPU holds text encoder/VAE and
              pipeline tensors, last holds VACE, middle GPUs split DiT blocks.
+             With two GPUs, text/VAE/VACE use the first and DiT uses the second.
              Requires Accelerate; incompatible with --low-vram.
   --dry-run: validate arguments/files and print configuration without importing
              inference dependencies, decoding media, copying weights or downloading models.
@@ -161,8 +162,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.low_vram and args.device.split(':')[0] != 'cuda':
         parser.error('--low-vram requires a CUDA device')
     if args.model_gpus is not None:
-        if args.low_vram or len(args.model_gpus) < 4 or len(set(args.model_gpus)) != len(args.model_gpus) or min(args.model_gpus) < 0:
-            parser.error('--model-gpus requires >=4 distinct nonnegative GPU IDs and cannot use --low-vram')
+        if args.low_vram or len(args.model_gpus) < 2 or len(set(args.model_gpus)) != len(args.model_gpus) or min(args.model_gpus) < 0:
+            parser.error('--model-gpus requires >=2 distinct nonnegative GPU IDs and cannot use --low-vram')
     try:
         args.model_dir = cached_model_dir(args.model_dir, dry_run=args.dry_run)
         args.model_files = resolve_model_files(args.model_dir)
@@ -176,7 +177,7 @@ def distribute_vace_models(pipe, gpu_ids: list[int]) -> None:
     import torch
     from accelerate.hooks import AlignDevicesHook, add_hook_to_module
     main = torch.device(f'cuda:{gpu_ids[0]}')
-    block_devices = [torch.device(f'cuda:{i}') for i in gpu_ids[1:-1]]
+    block_devices = [torch.device(f'cuda:{i}') for i in (gpu_ids[1:] if len(gpu_ids) == 2 else gpu_ids[1:-1])]
     for name in ('dit2', 'vace2'):
         if getattr(pipe, name, None) is not None:
             raise ValueError('Model sharding currently supports single-stage Wan2.1 VACE only')
@@ -193,7 +194,7 @@ def distribute_vace_models(pipe, gpu_ids: list[int]) -> None:
         target = block_devices[min(index * len(block_devices) // len(pipe.dit.blocks), len(block_devices)-1)]
         block.to(target)
         add_hook_to_module(block, AlignDevicesHook(execution_device=target, io_same_device=True))
-    vace_device = torch.device(f'cuda:{gpu_ids[-1]}')
+    vace_device = main if len(gpu_ids) == 2 else torch.device(f'cuda:{gpu_ids[-1]}')
     pipe.vace.to(vace_device)
     add_hook_to_module(pipe.vace, AlignDevicesHook(execution_device=vace_device, io_same_device=True))
     pipe.device, pipe.device_type = main, 'cuda'

@@ -64,7 +64,16 @@ def foreground(image, mode="auto", mask=None, tolerance=24):
         largest = 1 + int(stats[1:, cv2.CC_STAT_AREA].argmax())
         rgba[:, :, 3] = np.where(components == largest, alpha, 0)
     result = Image.fromarray(rgba)
-    bounds = result.getchannel("A").getbbox()
+    result_alpha = result.getchannel("A")
+    # Generated cutouts can contain almost invisible alpha dust far from the
+    # person. Do not let it shrink the visible subject during canvas fitting.
+    if selected == "alpha":
+        bounds = result_alpha.point(lambda value: 255 if value >= 8 else 0).getbbox()
+        if bounds is not None:
+            bounds = (max(0, bounds[0] - 2), max(0, bounds[1] - 2),
+                      min(result.width, bounds[2] + 2), min(result.height, bounds[3] + 2))
+    else:
+        bounds = result_alpha.getbbox()
     if bounds is None:
         raise ValueError("Reference foreground is empty")
     return result, bounds, selected
