@@ -1,7 +1,8 @@
-"""Render a full FBX animation preview on a neutral studio background.
+"""Render a full FBX animation preview as a studio render or DWPose video.
 
 Parameters: --fbx animated FBX, --output optional MP4, --blender executable,
---size square image pixels (default 640), --samples CPU Cycles samples (8).
+--size square image pixels (default 640), --samples CPU Cycles samples (8),
+--mode mesh (default) or dwpose.
 Mesh assets retain their materials; skeleton-only assets show colored bones.
 One fixed normalization/camera spans the full animation, at its imported FPS.
 For person-assets/fbx/NAME.fbx the default output is
@@ -9,9 +10,10 @@ person-assets/previews/NAME.mp4; elsewhere it is beside the FBX. --overwrite
 allows replacing a preview. --metadata-dir stores timing/logs, defaulting to
 outputs/fbx-previews/ in the project. Temporary PNG frames are removed.
 
+--mode dwpose exports the project's color-coded BODY-18 skeleton on black.
 Example:
   python tools/preview_fbx.py --fbx person-assets/fbx/waving-1.fbx \
-    --overwrite
+    --mode dwpose --overwrite
 """
 
 import argparse
@@ -26,6 +28,9 @@ import tempfile
 def render(job_path):
     import bpy
     from mathutils import Matrix, Vector
+
+    project_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(project_root))
 
     job = json.loads(Path(job_path).read_text())
     bpy.ops.object.select_all(action="SELECT")
@@ -47,6 +52,65 @@ def render(job_path):
     last = max(float(action.frame_range[1]) for action in actions)
     fps = scene.render.fps / scene.render.fps_base
     count = max(1, int(math.floor(last - first)) + 1)
+    if job["mode"] == "dwpose":
+        from utils.fbx_pose import BODY_BONES
+        if len(arms) != 1:
+            raise ValueError("DWPose preview requires exactly one animated armature")
+        arm = arms[0]
+        bones = {bone.name.split(":")[-1]: bone for bone in arm.pose.bones}
+        aliases = {"Neck": ("Neck", "Neck2", "Neck1"),
+                   "RightUpLeg": ("RightUpLeg", "RightLeg"),
+                   "RightLeg": ("RightLeg", "RightShin"),
+                   "LeftUpLeg": ("LeftUpLeg", "LeftLeg"),
+                   "LeftLeg": ("LeftLeg", "LeftShin")}
+        mapped = {name: next((candidate for candidate in aliases.get(name, (name,))
+                              if candidate in bones), None)
+                  for name in BODY_BONES if name}
+        missing = [name for name, candidate in mapped.items() if candidate is None]
+        if missing:
+            raise ValueError(f"Unsupported body rig; missing bones: {missing}")
+        direction = (Vector((0, 0, 1)) - Vector((0, -7, 2.1))).normalized()
+        right = direction.cross(Vector((0, 0, 1))).normalized()
+        up = right.cross(direction).normalized()
+        world_frames = []
+        projected = []
+        for index in range(count):
+            value = first + index
+            scene.frame_set(math.floor(value), subframe=value % 1)
+            bpy.context.view_layer.update()
+            evaluated = arm.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            frame_points = []
+            for name in BODY_BONES:
+                if name is None:
+                    frame_points.append(None)
+                    continue
+                source_bone = mapped[name]
+                point = evaluated.matrix_world @ evaluated.pose.bones[source_bone].head
+                frame_points.append([float(point.dot(right)), float(point.dot(up))])
+                projected.append(frame_points[-1])
+            world_frames.append(frame_points)
+        if not projected:
+            raise ValueError("FBX animation has no BODY-18 joints")
+        min_x = min(point[0] for point in projected)
+        max_x = max(point[0] for point in projected)
+        min_y = min(point[1] for point in projected)
+        max_y = max(point[1] for point in projected)
+        span = max(max_x - min_x, max_y - min_y, 1e-4)
+        scale = job["size"] * 0.78 / span
+        center_x, center_y = (min_x + max_x) / 2, (min_y + max_y) / 2
+        pixel_frames = []
+        for frame_points in world_frames:
+            pixel_frames.append([None if point is None else
+                [job["size"] / 2 + (point[0] - center_x) * scale,
+                 job["size"] / 2 - (point[1] - center_y) * scale]
+                for point in frame_points])
+        metadata = dict(fbx=job["fbx"], fps=fps, frames=count,
+                        animation_range=[first, last], size=job["size"],
+                        mode="dwpose", skeleton="BODY-18", missing_face_joints=4)
+        (Path(job["frames_dir"]) / "pose.json").write_text(json.dumps(
+            dict(metadata=metadata, keypoints=pixel_frames)))
+        (Path(job["frames_dir"]) / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+        return
     bounds = []
     for index in range(count):
         value = first + index
@@ -168,6 +232,8 @@ def parse_args(argv=None):
     parser.add_argument("--blender", help="Blender binary; default: BLENDER_BIN/PATH/local installation")
     parser.add_argument("--size", type=int, default=640)
     parser.add_argument("--samples", type=int, default=8)
+    parser.add_argument("--mode", choices=("mesh", "dwpose"), default="mesh",
+                        help="Studio mesh render or black-background color BODY-18 DWPose")
     parser.add_argument("--metadata-dir", type=Path,
                         default=Path(__file__).resolve().parents[1] / "outputs/fbx-previews")
     parser.add_argument("--overwrite", action="store_true")
@@ -191,8 +257,9 @@ def parse_args(argv=None):
 
 def main():
     args = parse_args()
-    import cv2
     import imageio_ffmpeg
+    if args.mode == "mesh":
+        import cv2
 
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root))
@@ -204,7 +271,8 @@ def main():
     metadata_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="motion-preview-") as temporary:
         work = Path(temporary)
-        job = dict(fbx=str(args.fbx.resolve()), size=args.size, samples=args.samples, frames_dir=str(work))
+        job = dict(fbx=str(args.fbx.resolve()), size=args.size, samples=args.samples,
+                   mode=args.mode, frames_dir=str(work))
         (work / "job.json").write_text(json.dumps(job))
         log_path = metadata_dir / (args.output.stem + ".log")
         with log_path.open("w") as log:
@@ -219,13 +287,40 @@ def main():
         )
         writer.send(None)
         try:
+            pose_frames = None
+            if args.mode == "dwpose":
+                import numpy as np
+                from PIL import Image, ImageDraw
+                from utils.fbx_pose import BODY_BONES, COLORS_RGB, LIMBS
+                pose_frames = json.loads((work / "pose.json").read_text())["keypoints"]
             for index in range(metadata["frames"]):
-                frame = cv2.imread(str(work / f"{index:06d}.png"))
-                if frame is None:
-                    raise ValueError(f"Missing preview frame {index}")
-                label = f"{args.fbx.stem} | {metadata['mode']} | {index + 1}/{metadata['frames']}"
-                cv2.putText(frame, label, (16, 28), cv2.FONT_HERSHEY_SIMPLEX, .5,
-                            (245, 245, 245), 1, cv2.LINE_AA)
+                if pose_frames is not None:
+                    factor = 2
+                    image = Image.new("RGB", (args.size * factor, args.size * factor), "black")
+                    draw = ImageDraw.Draw(image)
+                    points = [None if point is None else
+                              (round(point[0] * factor), round(point[1] * factor))
+                              for point in pose_frames[index]]
+                    width = max(2, args.size // 160) * factor
+                    radius = max(2, args.size // 160) * factor
+                    for limb_index, (first, second) in enumerate(LIMBS):
+                        if points[first] is not None and points[second] is not None:
+                            color = tuple(round(channel * .6) for channel in COLORS_RGB[limb_index])
+                            draw.line((points[first], points[second]), fill=color, width=width)
+                    for joint_index, point in enumerate(points):
+                        if point is not None:
+                            color = COLORS_RGB[joint_index]
+                            draw.ellipse((point[0] - radius, point[1] - radius,
+                                          point[0] + radius, point[1] + radius), fill=color)
+                    image = image.resize((args.size, args.size), Image.Resampling.LANCZOS)
+                    frame = np.asarray(image)[:, :, ::-1].copy()
+                else:
+                    frame = cv2.imread(str(work / f"{index:06d}.png"))
+                    if frame is None:
+                        raise ValueError(f"Missing preview frame {index}")
+                    label = f"{args.fbx.stem} | {metadata['mode']} | {index + 1}/{metadata['frames']}"
+                    cv2.putText(frame, label, (16, 28), cv2.FONT_HERSHEY_SIMPLEX, .5,
+                                (245, 245, 245), 1, cv2.LINE_AA)
                 writer.send(frame.tobytes())
         finally:
             writer.close()
