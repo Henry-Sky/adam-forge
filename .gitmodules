@@ -1,0 +1,9 @@
+[submodule "third_party/Qwen-Image"]
+	path = third_party/Qwen-Image
+	url = https://github.com/QwenLM/Qwen-Image.git
+[submodule "third_party/asset-harvester"]
+	path = third_party/asset-harvester
+	url = https://github.com/NVIDIA/asset-harvester.git
+[submodule "third_party/sam3"]
+	path = third_party/sam3
+	url = https://github.com/facebookresearch/sam3.git
