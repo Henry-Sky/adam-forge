@@ -39,7 +39,7 @@ bash setup/install_environments.sh gem_x soma_x
 先运行 `git submodule update --init --recursive` 准备源码。
 Harvester 还需要 CUDA 兼容的 GCC/G++（上游测试 GCC 10–13），脚本会在其环境中安装 GCC/G++ 12、CUDA Toolkit 12.8 并编译固定版本 gsplat。
 
-GEM-X 安装本地 `third_party/GEM-X` 的 `video,hand` 依赖及 FFmpeg，包含人体/手部 ONNX 检测运行库；不包含可选 Open3D 渲染或训练依赖。
+GEM-X 安装本地 `third_party/GEM-X` 的 `video,hand` 依赖及 FFmpeg，包含人体/手部 ONNX 检测运行库；不包含可选 Open3D 渲染或训练依赖。安装同时准备 `trimesh>=4.6,<6`、`rtree>=1.3,<2`，供网页的 Gaussian 蒙皮绑定后台任务进行最近三角面查询。
 GEM-X 固定依赖 `py-soma-x==0.3.3`，独立 SOMA-X 环境安装 `third_party/SOMA-X` 当前源码（0.3.4），请勿合并两个环境。
 SOMA-X 脚本安装基础人体与骨架依赖，不安装可选 SMPL/Anny 后端或演示依赖。
 两者只执行导入检查，不构造模型、不自动下载模型资源。权重路径和来源见 [`checkpoint/README.md`](../checkpoint/README.md)。
@@ -53,6 +53,10 @@ bash setup/install_environments.sh web --prefix demo --dry-run
 conda activate adam-web
 python web_server/api.py --port 8766
 ```
+
+可选 Gaussian 蒙皮绑定由独立的 `<prefix>-gem-x` 环境计算，`adam-web` 不安装 Torch/SOMA。先安装 `setup/install_gem_x.sh` 并准备匹配的 `checkpoint/GEM-X/soma-v0.3.3`（来源见 checkpoint README）。网页默认寻找同级 `<prefix>-gem-x/bin/python`，可用 `ADAM_BINDING_PYTHON` 指定计算环境的 Python、`ADAM_SOMA_ASSETS` 指定 SOMA v0.3.3 资产目录，再启动网页服务。后台任务使用 64 CPU 线程，每次一个；使用 CPU 完整 SOMA 重建和表面查询，无需占用 GPU，不支持通过复制单人体任务使用多 GPU。
+
+网页鼠标 LBS 测试使用已固定的 Three.js / Spark 2.4.0 与 WebGL2 covariance splat 渲染路径，不增加前端包或 Python 依赖；支持全部已保存影响骨骼数，并遵循左侧显隐、显示模式和点云 opacity 阈值。
 
 网页参数和 Python 接口见 [`web_server/README.md`](../web_server/README.md)。
 

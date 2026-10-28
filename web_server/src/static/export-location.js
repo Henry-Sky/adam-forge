@@ -13,7 +13,7 @@ export async function initializeExportLocation(){
 }
 function serverDirectory(){
   const dialog=document.createElement('dialog');dialog.className='project-form asset-dialog';
-  dialog.innerHTML='<form><div class="heading-row"><h2>导出到服务器</h2><button type="button" id="close-server-export" aria-label="关闭导出窗口">×</button></div><p class="caption">导出配准后的 SOMA 与 Gaussian，自动创建独立子目录。</p><label>导出目录<div class="server-path-row"><input id="server-export-path" required placeholder="/服务器/导出根目录"><button type="button" id="browse-export-directory">浏览…</button></div></label><p id="server-export-message" class="caption" role="status">记住上次选择的目录，不覆盖已有导出文件。</p><button type="submit" class="primary full-width">确认导出</button></form>';
+  dialog.innerHTML='<form><div class="heading-row"><h2>导出到服务器</h2><button type="button" id="close-server-export" aria-label="关闭导出窗口">×</button></div><p class="caption">导出当前模型及结果数据，自动创建独立子目录。</p><label>导出目录<div class="server-path-row"><input id="server-export-path" required placeholder="/服务器/导出根目录"><button type="button" id="browse-export-directory">浏览…</button></div></label><p id="server-export-message" class="caption" role="status">记住上次选择的目录，不覆盖已有导出文件。</p><button type="submit" class="primary full-width">确认导出</button></form>';
   const input=dialog.querySelector('input');input.value=storage.get('-server')||'';
   document.body.append(dialog);
   return new Promise((resolve,reject)=>{

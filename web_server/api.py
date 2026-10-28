@@ -25,6 +25,8 @@ HTTP 接口：
     GET  /api/scene?project=<id>            读取场景
     POST /api/commit?project=<id>          更新项目临时模型参数
     POST /api/save?project=<id>            导出已配准文件，不覆盖导入源
+    POST /api/bindings?project=<id>        后台生成完整 Gaussian 蒙皮绑定
+    GET  /api/bindings?project=<id>&job=<id> 查询绑定任务
     GET  /exports/<id>/<file>              下载导出文件或 ZIP
 """
 import argparse

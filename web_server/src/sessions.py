@@ -16,6 +16,7 @@ from scipy.spatial.transform import Rotation
 
 from .models import SceneAssets, sha256, validate_matrix
 from .parameters import transform_soma
+from .bindings import BindingJobs
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -35,6 +36,7 @@ class SessionStore:
         self.temporary=tempfile.TemporaryDirectory(prefix='adam-registration-') if root is None else None
         self.root=Path(self.temporary.name if self.temporary else root).resolve()
         self.exports={}
+        self.bindings=BindingJobs(self.root)
         self.root.mkdir(parents=True,exist_ok=True)
         self.lock=threading.RLock()
         self.cache={}
@@ -123,7 +125,7 @@ class SessionStore:
             if ident not in self.cache:
                 project=SceneAssets(folder/'soma.npz',folder/'gaussians.ply',folder/'registration.json')
                 meta=json.loads((folder/'project.json').read_text())
-                project.scene.update({'name':meta['name'],'project_id':ident,'revision':meta['revision'],'project_mode':True,'temporary_import':True})
+                project.scene.update({'name':meta['name'],'project_id':ident,'revision':meta['revision'],'project_mode':True,'temporary_import':True,'binding_job_id':self.bindings.latest(ident)})
                 self.cache[ident]=project
             return self.cache[ident]
 
@@ -197,20 +199,38 @@ class SessionStore:
                     self.cache.pop(ident).data.close()
                     shutil.rmtree(backup,ignore_errors=True)
                     return {'revision':meta['revision'],'saved':True,'reload':True}
+                # Bound geometry must retain exact file contents and hashes. A pending
+                # object transform invalidates the old world-space inverse bind poses.
+                neutral=project.scene['aligned_world'] and np.allclose(soma_world,np.eye(4),atol=1e-8) and np.allclose(cloud_view,np.eye(4),atol=1e-8)
+                binding={'included':False,'state':'unsaved_transform'}
+                if neutral:
+                    shutil.copyfile(project.soma,transaction/'soma.npz')
+                    shutil.copyfile(project.ply,transaction/'gaussians.ply')
+                    binding=self.bindings.pack(self,ident,transaction/'gaussian_binding.npz')
+                registration=json.loads((transaction/'registration.json').read_text())
+                (transaction/'registration.json').unlink()
+                files=['soma.npz','gaussians.ply','metadata.json']
+                if binding['included']:files.append('gaussian_binding.npz')
+                metadata={**registration,'format':'aligned_asset_bundle_v1','coordinate_system':'project_world; X-front Y-left Z-up',
+                          'binding':binding,'files':files,'files_sha256':{name:sha256(transaction/name) for name in files if name!='metadata.json'}}
+                metadata['source_ply_sha256']=metadata['files_sha256']['gaussians.ply']
+                metadata['source_soma_sha256']=metadata['files_sha256']['soma.npz']
+                metadata['weights_status']='bound' if binding['included'] else 'unbound: '+binding['state']
+                atomic_json(transaction/'metadata.json',metadata)
                 if final.exists():raise ValueError('导出目录已存在')
                 os.rename(transaction,final)
                 self.exports[export_id]=final
-                files=['soma.npz','gaussians.ply','registration.json']
                 if destination=='local':
                     archive=self.root/'exports'/(export_id+'.zip')
                     with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_STORED) as z:
                         for name in files:z.write(final/name,arcname=final.name+'/'+name)
-                return {'directory':str(final),'export_id':export_id,'destination':destination,'files':files,'reload':False}
+                return {'directory':str(final),'export_id':export_id,'destination':destination,'files':files,'binding_included':binding['included'],'reload':False}
             except Exception:
                 shutil.rmtree(transaction,ignore_errors=True)
                 raise
 
     def close(self):
+        self.bindings.close()
         for project in self.cache.values():project.data.close()
         self.cache.clear()
         if self.temporary:self.temporary.cleanup()

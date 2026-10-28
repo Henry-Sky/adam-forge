@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Web registration service; no GPU/model dependencies.
+# Optional skinning jobs use the separate GEM-X environment (see setup/README.md).
 # Examples (from repository root, or use this script's absolute path):
 #   bash setup/install_web.sh --prefix adam
 #   bash setup/install_web.sh --prefix demo --dry-run

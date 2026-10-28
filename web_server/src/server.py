@@ -59,21 +59,28 @@ def handler_for(store):
                     return self.json_response({'path':str(folder),'parent':str(folder.parent),'entries':entries[:500],'truncated':len(entries)>500})
                 except OSError as error:
                     return self.json_response({'error':f'目录无法读取：{error}'},400)
+            if path == '/api/bindings':
+                job_id=parse_qs(urlsplit(self.path).query).get('job',[''])[0]
+                return self.json_response(store.bindings.status(store,ident,job_id))
             if path == '/api/scene':
                 if not selected:return self.json_response({'error':'请选择项目'},400)
                 return self.json_response(selected.scene)
             paths = {'/':HERE/'index.html', '/app.js':HERE/'app.js', '/style.css':HERE/'style.css',
                 '/math.js':HERE/'math.js','/export-location.js':HERE/'export-location.js', '/assets/gaussians.ply':selected.ply if selected else None,
-                '/asset-import.js':HERE/'asset-import.js'}
+                '/asset-import.js':HERE/'asset-import.js','/binding-ui.js':HERE/'binding-ui.js','/lbs-interaction.js':HERE/'lbs-interaction.js'}
             target = paths.get(path)
             download=False
             if path.startswith('/exports/'):
                 parts=path.split('/')
                 if len(parts)==4 and parts[2] in store.exports:
-                    if parts[3] in ('soma.npz','gaussians.ply','registration.json'):
+                    if parts[3] in ('soma.npz','gaussians.ply','metadata.json','gaussian_binding.npz'):
                         target=store.exports[parts[2]]/parts[3]
                     elif parts[3]=='download.zip':
                         target=store.root/'exports'/(parts[2]+'.zip');download=True
+            if path.startswith('/bindings/'):
+                parts=path.split('/')
+                if len(parts)==4:
+                    target=store.bindings.file(store,ident,parts[2],parts[3])
             if path.startswith('/vendor/'):
                 root = (HERE/'.vendor').resolve()
                 candidate = (root/path.removeprefix('/vendor/')).resolve()
@@ -92,7 +99,7 @@ def handler_for(store):
 
         def do_POST(self):
             path=urlsplit(self.path).path
-            if path not in ('/api/save','/api/commit','/api/projects'):
+            if path not in ('/api/save','/api/commit','/api/projects','/api/bindings'):
                 return self.send_error(404)
             origin = self.headers.get('Origin')
             if origin and urlsplit(origin).netloc != self.headers.get('Host'):
@@ -106,7 +113,9 @@ def handler_for(store):
                     result=store.create(payload)
                 else:
                     ident=parse_qs(urlsplit(self.path).query).get('project',[''])[0]
-                    result=store.commit(ident,payload) if path=='/api/commit' else store.save(ident,payload)
+                    with store.lock:
+                        if path=='/api/bindings':result=store.bindings.start(store,ident,payload)
+                        else:result=store.commit(ident,payload) if path=='/api/commit' else store.save(ident,payload)
                 self.json_response(result)
             except (ValueError,KeyError,TypeError) as error:
                 self.json_response({'error':str(error)},400)

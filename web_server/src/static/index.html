@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/adam-forge-web-server/"><span class="brand-icon">◈</span><strong>AdamForge</strong><span class="divider"></span><span>人体配准工作台</span></a>
-    <div class="top-actions"><span id="save-state" class="pill">未加载</span><div class="asset-import-actions toolbar-file-actions"><button id="commit" title="更新当前项目临时副本并清空暂存变换">保存</button><button id="save" title="导出到服务器目录">↗ 导出</button><button id="download-models" title="下载到本地目录">↓ 下载</button></div></div>
+    <div class="top-actions"><span id="binding-state" class="pill" role="status" aria-live="polite">未绑定</span><span id="save-state" class="pill">未加载</span><div class="asset-import-actions toolbar-file-actions"><button id="commit" title="更新当前项目临时副本并清空暂存变换">保存</button><button id="save" title="导出到服务器目录">↗ 导出</button><button id="download-models" title="下载到本地目录">↓ 下载</button></div></div>
   </header>
   <main>
     <aside class="left panel">
@@ -28,8 +28,8 @@
       <div class="local-note"><span class="dot"></span> 本机运行 · 原始文件保持不变</div>
     </aside>
     <section class="workspace">
-      <div class="viewport-toolbar"><div class="segmented" id="view-buttons"><button data-view="perspective" class="selected">透视</button><button data-view="front">正面</button><button data-view="side">左侧面</button><button data-view="back">背面</button><button data-view="top">顶视</button></div><div><button id="fit" title="聚焦人物 (F)">⌖ 聚焦</button><button id="grid-toggle" class="selected">网格</button></div></div>
-      <div id="viewport" aria-label="SOMA 与 Gaussian 三维配准视窗"><div id="loading" class="loading"><div class="spinner"></div><strong>正在准备三维场景</strong><span>读取本地人体与 Gaussian 数据…</span></div><div class="viewport-label"><span class="dot"></span><span id="view-label">透视视图</span><span class="axis-tag">Z ↑</span></div><div id="notification" role="status"></div><canvas id="axis-preview" aria-label="实时世界坐标轴预览：X 正面、Y 左侧、Z 向上"></canvas><div class="interaction-hint">左键旋转视角 <span>·</span> 右键平移 <span>·</span> 滚轮缩放</div></div>
+      <div class="viewport-toolbar"><div class="segmented" id="view-buttons"><button data-view="perspective" class="selected">透视</button><button data-view="front">正面</button><button data-view="side">左侧面</button><button data-view="back">背面</button><button data-view="top">顶视</button></div><div><button id="fit" title="聚焦人物 (F)">⌖ 聚焦</button><button id="lbs-toggle" title="绑定完成后，使用鼠标旋转关节测试 Gaussian LBS" disabled aria-pressed="false">LBS</button><button id="grid-toggle" class="selected">网格</button></div></div>
+      <div id="viewport" aria-label="SOMA 与 Gaussian 三维配准视窗"><div id="lbs-tools" class="lbs-tools" hidden><strong>LBS 测试</strong><select id="lbs-joint" aria-label="LBS 驱动关节"></select><button id="lbs-reset">恢复绑定姿态</button><span>点击关节切换 · 拖动旋转环 · Esc 退出</span></div><div id="loading" class="loading"><div class="spinner"></div><strong>正在准备三维场景</strong><span>读取本地人体与 Gaussian 数据…</span></div><div class="viewport-label"><span class="dot"></span><span id="view-label">透视视图</span><span class="axis-tag">Z ↑</span></div><div id="notification" role="status"></div><canvas id="axis-preview" aria-label="实时世界坐标轴预览：X 正面、Y 左侧、Z 向上"></canvas><div class="interaction-hint">左键旋转视角 <span>·</span> 右键平移 <span>·</span> 滚轮缩放</div></div>
       <div class="bottom-bar"><span id="render-status">正在初始化 WebGL2…</span><span id="selection-status">整体配准 · 以髋关节为旋转中心</span><span id="fps">— FPS</span></div>
     </section>
     <aside class="right panel">
@@ -42,6 +42,17 @@
       <div class="history-actions"><button id="undo" disabled>↶ 撤销</button><button id="redo" disabled>↷ 重做</button></div><button id="reset" class="full-width">恢复自动配准结果</button>
       <section><div class="section-title">当前矩阵 <button id="copy-matrix" class="text-button">复制</button></div><pre id="matrix">等待场景加载</pre></section>
       <div class="info-box"><strong>整体变换</strong><p>本页不修改关节角度或骨长。调整后，原蒙皮权重需要重新计算。</p></div>
+      <section id="skinning-panel"><div class="section-title">Gaussian 蒙皮绑定 <span class="tiny accent">LBS</span></div>
+        <p class="caption">先保存配准，再将 SOMA Mesh 权重转移至 Gaussian。绑定采用当前姿态。</p>
+        <label class="select-label">每点影响骨骼数<select id="binding-influences"><option value="4">4</option><option value="8" selected>8（推荐）</option><option value="16">16</option></select></label>
+        <button id="bind-skinning" class="full-width" disabled>生成蒙皮绑定</button>
+        <progress id="binding-progress" max="100" value="0" hidden></progress>
+        <p id="binding-status" class="caption" role="status">尚未生成绑定</p><p id="binding-summary" class="caption"></p>
+        <details id="binding-error-details" hidden><summary>计算日志</summary><pre id="binding-error"></pre></details>
+        <label class="select-label">绑定检查<select id="binding-view" disabled><option value="original">原始外观</option><option value="bones">主骨骼权重</option><option value="distance">表面距离（红色需检查）</option></select></label>
+        <p class="caption">权重与距离检查显示 Gaussian 中心。鼠标驱动测试请使用视窗顶部 LBS 按钮。</p>
+        <p class="caption">绑定完成后，右上角导出 / 下载会自动附带合并后的绑定 NPZ。</p>
+      </section>
       <div id="last-save" class="caption save-result"></div>
     </aside>
   </main>

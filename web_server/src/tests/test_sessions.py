@@ -139,7 +139,7 @@ class SessionsTest(unittest.TestCase):
             payload=self.payload(store.get(meta['id']));payload['destination']='local'
             result=store.save(meta['id'],payload)
             with zipfile.ZipFile(store.root/'exports'/(result['export_id']+'.zip')) as archive:
-                self.assertEqual(len(archive.namelist()),3)
+                self.assertEqual({Path(name).name for name in archive.namelist()},{'soma.npz','gaussians.ply','metadata.json'})
                 self.assertIsNone(archive.testzip())
             imported=store.folder(meta['id'])
             self.assertEqual(original,((imported/'soma.npz').read_bytes(),(imported/'gaussians.ply').read_bytes()))

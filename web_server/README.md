@@ -69,8 +69,11 @@ ZIP 的下载位置由浏览器设置决定，网页不能读取或记住任意�
 aligned-<时间戳>-<标识>/
 ├── soma.npz             # 已更新原始参数及网格、骨架的 SOMA 模型
 ├── gaussians.ply        # 已变换的 Gaussian
-└── registration.json    # 应用的两个对象变换、来源哈希和坐标说明
+├── gaussian_binding.npz # 可选：合并的权重、完整骨架和逆绑定矩阵
+└── metadata.json        # 文件清单、SHA-256、配准与绑定状态
 ```
+
+右上角是唯一导出入口。有效绑定完成后共 4 个文件；未绑定、绑定计算中或已失效时仅输出 3 个文件，不创建空绑定文件。绑定 NPZ 只在绑定对应当前配准且没有未保存的整体变换时附带；`metadata.json.binding` 记录是否包含及原因。有绑定时，NPZ / PLY 保留当前绑定源的精确文件内容，避免权重与源哈希错配。
 
 导出前完整写入暂存目录，全部成功后发布结果目录；失败不发布半成品。
 本地原生目录写入失败会尝试移除本次新子目录；浏览器中断仍可能留下不完整子目录。
@@ -82,11 +85,31 @@ aligned-<时间戳>-<标识>/
 旧导出的 `parameter_geometry_transform` 会吸收到这些原始参数中，随后删除，避免重复应用。缺少原始参数的 NPZ 会明确拒绝保存与导出。
 原始 `intrinsics`、`keypoints_2d` 移入 `original_*`，避免误用于已变换几何。
 Gaussian 的中心、方向四元数和 log scale 同步变换，颜色、opacity 和行序保持不变。
-导出后的两个模型已经在共同空间，`registration.json.soma_camera_to_ply` 为单位矩阵。
-旧蒙皮权重需要针对新文件重新计算。
+导出后的两个模型已经在共同空间，`metadata.json.soma_camera_to_ply` 为单位矩阵。
+未保存的配准变更不会携带旧绑定；需先保存并重新生成。当前配准的有效绑定随右上角导出一起保存。
 
 `Ctrl/Cmd+S` 触发保存临时副本，未导出修改仍保留在当前页面和浏览器草稿。
 关闭服务前请完成模型导出，草稿不包含模型文件。
+
+## Gaussian 蒙皮绑定与 LBS
+
+导入已经配准的 `web_server/output/aligned-20261028T073920Z-165dcf96/soma.npz` 和同目录 `gaussians.ply` 即可使用；共同空间会自动识别，不再执行初始化对齐。也可在当前项目完成配准并点击“保存”。
+
+右侧“Gaussian 蒙皮绑定”面板选择每点影响骨骼数（默认 8），点击“生成蒙皮绑定”。后台使用独立 GEM-X 环境重建匹配的 SOMA 0.3.3 完整骨架、检查参数与网格一致性，再按最近三角面重心插值转移权重。首次配置见 [`setup/README.md`](../setup/README.md)，计算使用 64 CPU 线程、每次一个后台任务，网页仍可浏览。
+
+右上角显示“未绑定 / 绑定中 / 已绑定 / 绑定已失效 / 绑定失败”。完成后右侧检查菜单只保留“原始外观”“主骨骼权重”“表面距离”，权重与距离检查显示 Gaussian 中心，红色距离点需人工检查。
+
+点击视窗顶部“聚焦”和“网格”之间的 **LBS** 进入鼠标驱动测试。默认选择左前臂，也可点击关节球或通过顶部关节下拉框切换，拖动彩色旋转环驱动关节及其子骨骼。点击“恢复绑定姿态”复位；再次点击 LBS 或按 Esc 退出并恢复原模型。右上角在测试时显示“LBS 测试中”。
+
+LBS 测试严格遵循左侧“高斯人物”显隐、“真实 Gaussian splats / 点云检查模式”选择及点云 opacity 阈值。Splats 模式在 GPU 上按全部已保存的 K 个权重更新中心和协方差 `A C Aᵀ`；点云使用同一套权重和骨骼变换。未将 8/16/32 个权重截断成渲染库默认的 4 个。测试期间隐藏未驱动的 SOMA 网格，显示的测试骨架遵循“骨架”开关；退出后恢复左侧所选图层。
+
+这是当前完整骨架的 FK/LBS 权重测试，不重新运行 SOMA 的程序扭转约束或 correctives，也不写入原始模型参数。测试期间锁定配准编辑、保存及导出操作，退出恢复；正式生成其他 SOMA 姿态仍应使用匹配的 SOMA 完整目标骨架。命令行绑定工具保留弯肘示例；网页导出只包含模型、可选合并绑定和 metadata，不包含预览副本。
+
+蒙皮面板不再提供单独的导出 / 下载。右上角“导出 / 下载”自动附带当前有效的 `gaussian_binding.npz`，将原 `skinning.npz` 和 `skeleton.npz` 的字段合并在同一个文件中：每点索引/权重、质量标记、完整关节名称/层级、当前绑定世界矩阵、局部矩阵和逆绑定矩阵，以及源文件 SHA-256。当前姿态和目标姿态使用同一个坐标基。
+
+当前配准姿态就是绑定姿态，驱动使用 `target_world @ bind_inverse`。完整骨架包括程序扭转关节，不能将网页 77 个显示关节直接用于该权重。改变配准后必须重新保存并生成绑定；旧任务会标记失效，右上角仍可导出配准模型，但不会附带失效绑定。后台使用源文件快照，任务失败不发布半成品。服务关闭会终止仍在计算的任务；完成结果只在项目临时目录中，需另行导出保留。
+
+命令行绑定、LBS 驱动及数据字段详见 [`tools/README.md`](../tools/README.md)。网页基础配准不要求 GEM-X 环境，缺少计算环境或资产时绑定面板给出错误。
 
 ## 验证
 
@@ -95,13 +118,16 @@ python -B -m unittest discover -s web_server/src/tests -p 'test_*.py' -v
 node --test web_server/src/tests/math.test.mjs
 node --check web_server/src/static/app.js
 node --check web_server/src/static/export-location.js
+node --check web_server/src/static/binding-ui.js
+node --check web_server/src/static/lbs-interaction.js
+python -B -m unittest discover -s tests -p test_gaussian_lbs.py -v
 ```
 
 测试只写临时目录，验证原始参数更新与旧映射迁移、连续保存不重复变换、版本冲突、保存失败回滚、两种导入、导出中心/四元数/尺度、源文件不变、失败不发布半成品、
 本地 ZIP 内容和临时目录清理。浏览器实测覆盖服务器导出、本地 ZIP 导出和目录偏好恢复。
 本地原生目录选择需要用户手势，权限行为由浏览器控制。
 
-入口为 `api.py`；`src/server.py` 负责 HTTP 路由，`src/sessions.py` 负责临时导入和模型导出，`src/models.py` 负责场景与矩阵校验，`src/static/` 为前端。保存只更新当前项目临时副本，导出写入新目录。
+入口为 `api.py`；`src/server.py` 负责 HTTP 路由，`src/sessions.py` 负责临时导入和模型导出，`src/models.py` 负责场景与矩阵校验，`src/bindings.py` 管理后台蒙皮任务，`src/static/` 为前端。保存只更新当前项目临时副本，导出写入新目录。
 
 ## Python 接口与目录
 
@@ -130,6 +156,7 @@ finally:
 运行 `python web_server/api.py --help` 查看参数。支持 `python -m web_server.api`。
 `GET /api/browse` 浏览服务器文件，`POST /api/projects` 导入临时资产，
 `GET /api/scene?project=<id>` 获取场景，`POST /api/commit?project=<id>` 保存临时模型并递增版本，`POST /api/save?project=<id>` 导出模型；
+蒙皮任务使用 `POST /api/bindings?project=<id>`、`GET /api/bindings?project=<id>&job=<job>`；检查文件使用 `/bindings/<job>/<filename>?project=<id>`；鼠标测试按需读取 `interaction.json` 与 `interaction.bin`（后者为 little-endian float32 `[N,K,2]` 的骨骼索引/权重对），旧绑定也可直接使用，无需重算。这两份缓存不进入绑定导出包。
 下载使用 `/exports/<id>/<filename>`。接口名称保留以兼容现有前端，未保留旧页面或旧启动脚本。
 
 安装入口统一位于 `setup/install_web.sh`，前端包下载和 SHA-512 校验由 `tools/install_web_vendor.py` 辅助执行。支持 `--prefix`、`--reuse`、`--dry-run`；网页服务只需 NumPy/SciPy，不安装 Torch、CUDA 或模型权重。
