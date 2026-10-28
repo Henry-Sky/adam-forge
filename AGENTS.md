@@ -12,6 +12,12 @@
 
 Refer to `setup/README.md` for module Conda environments, prerequisites, installation commands, options, and validation steps. Verify referenced scripts exist before use; the root README includes references to removed tooling.
 
+## Download Sources and Proxy Traffic
+
+Prefer trusted domestic mirrors for dependency packages, source archives, model weights, and other downloads to reduce traffic through the default proxy. Check existing local caches before downloading, and use resumable downloads when supported. Verify mirrored files against upstream checksums or pinned versions/commits where available.
+
+Before large downloads or Git LFS checkout, inspect the required assets and select a domestic source when available. Avoid automatically fetching unnecessary LFS assets when only source code is needed. For domestic sources reachable directly, bypass the proxy for that command only; do not change global proxy settings. If domestic sources are unavailable, incomplete, or fail verification, use the official source through the default proxy and report the fallback; do not leave required downloads incomplete solely because no domestic source is available. Keep mirror URLs and download commands in the owning directory README rather than here.
+
 ## GPU Execution
 
 Run GPU tasks outside the Codex sandbox, including GPU diagnostics, CUDA validation, CUDA extension compilation, and model inference. Request escalated execution through the tool's approval mechanism when required. The sandbox can hide GPU device nodes; do not infer a driver or device failure from sandboxed `nvidia-smi` or CUDA checks. Verify outside the sandbox before diagnosing GPU access problems.

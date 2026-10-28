@@ -7,3 +7,9 @@
 [submodule "third_party/sam3"]
 	path = third_party/sam3
 	url = https://github.com/facebookresearch/sam3.git
+[submodule "third_party/GEM-X"]
+	path = third_party/GEM-X
+	url = https://github.com/NVlabs/GEM-X.git
+[submodule "third_party/SOMA-X"]
+	path = third_party/SOMA-X
+	url = https://github.com/NVlabs/SOMA-X.git
