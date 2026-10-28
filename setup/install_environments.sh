@@ -6,7 +6,7 @@
 #   bash setup/install_environments.sh all --prefix demo
 #   bash setup/install_environments.sh all --dry-run
 #   bash setup/install_environments.sh sam3 --reuse
-# 参数：qwen / harvester / sam3 / gem_x / soma_x / all 选择模块；--prefix 修改环境名前缀；
+# 参数：qwen / harvester / sam3 / gem_x / soma_x / web / all 选择模块；--prefix 修改环境名前缀；
 #       --dry-run 只打印安装命令；--reuse 允许向已有同名环境安装。
 # 多模块按选择顺序串行安装；任何模块失败立即退出。
 set -euo pipefail
@@ -26,7 +26,8 @@ Modules:
   sam3        安装 <prefix>-sam3（默认 adam-sam3）
   gem_x       安装 <prefix>-gem-x（默认 adam-gem-x）
   soma_x      安装 <prefix>-soma-x（默认 adam-soma-x）
-  all         依次安装 qwen、harvester、sam3、gem_x、soma_x
+  web         安装 <prefix>-web（默认 adam-web）
+  all         依次安装 qwen、harvester、sam3、gem_x、soma_x、web
 
 Options:
   --prefix NAME   环境名前缀，默认 adam
@@ -46,8 +47,8 @@ add_module() {
 
 while (( $# )); do
     case "$1" in
-        qwen|harvester|sam3|gem_x|soma_x) add_module "$1"; shift ;;
-        all) add_module qwen; add_module harvester; add_module sam3; add_module gem_x; add_module soma_x; shift ;;
+        qwen|harvester|sam3|gem_x|soma_x|web) add_module "$1"; shift ;;
+        all) add_module qwen; add_module harvester; add_module sam3; add_module gem_x; add_module soma_x; add_module web; shift ;;
         --prefix)
             (( $# >= 2 )) || fail '--prefix requires a value'
             [[ "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || fail 'Invalid prefix; use letters, digits, underscores or hyphens'
@@ -60,7 +61,7 @@ done
 
 if (( ${#MODULES[@]} == 0 )); then
     usage >&2
-    fail 'Select at least one module: qwen, harvester, sam3, gem_x, soma_x or all'
+    fail 'Select at least one module: qwen, harvester, sam3, gem_x, soma_x, web or all'
 fi
 
 # Validate the complete selection before starting any installation.

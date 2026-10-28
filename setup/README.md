@@ -14,6 +14,7 @@ bash setup/install_harvester.sh
 bash setup/install_sam3.sh
 bash setup/install_gem_x.sh
 bash setup/install_soma_x.sh
+bash setup/install_web.sh
 # 同时准备两个独立环境
 bash setup/install_environments.sh gem_x soma_x
 ```
@@ -29,9 +30,10 @@ bash setup/install_environments.sh gem_x soma_x
 | `install_sam3.sh` | `adam-sam3` | 3.12 |
 | `install_gem_x.sh` | `adam-gem-x` | 3.12 |
 | `install_soma_x.sh` | `adam-soma-x` | 3.12 |
+| `install_web.sh` | `adam-web` | 3.12 |
 
-各环境使用 PyTorch 2.10.0、Torchvision 0.25.0、CUDA 12.8 wheels。
-需要预先安装 Conda、curl、Git 和支持 CUDA 12.8 的 NVIDIA 驱动。
+模型环境使用 PyTorch 2.10.0、Torchvision 0.25.0、CUDA 12.8 wheels。
+模型环境需要预先安装 Conda、curl、Git 和支持 CUDA 12.8 的 NVIDIA 驱动。
 先运行 `git submodule update --init --recursive` 准备源码。
 Harvester 还需要 CUDA 兼容的 GCC/G++（上游测试 GCC 10–13），脚本会在其环境中安装 GCC/G++ 12、CUDA Toolkit 12.8 并编译固定版本 gsplat。
 
@@ -39,6 +41,18 @@ GEM-X 安装本地 `third_party/GEM-X` 的 `video,hand` 依赖及 FFmpeg，包�
 GEM-X 固定依赖 `py-soma-x==0.3.3`，独立 SOMA-X 环境安装 `third_party/SOMA-X` 当前源码（0.3.4），请勿合并两个环境。
 SOMA-X 脚本安装基础人体与骨架依赖，不安装可选 SMPL/Anny 后端或演示依赖。
 两者只执行导入检查，不构造模型、不自动下载模型资源。权重路径和来源见 [`checkpoint/README.md`](../checkpoint/README.md)。
+
+网页服务独立环境为 `<prefix>-web`（默认 `adam-web`），仅安装 Python 3.12、NumPy、SciPy，不需要 Torch、CUDA 或模型权重。
+`install_web.sh` 同时调用 `install_web_vendor.py` 将固定版本 Three.js / Spark 安装到忽略的 `web_server/src/static/.vendor/`，优先直连国内 npm 镜像，失败或 SHA-512 不匹配时回退官方源。已准备的前端包会复用，不重复下载。
+
+```bash
+bash setup/install_web.sh --prefix adam
+bash setup/install_environments.sh web --prefix demo --dry-run
+conda activate adam-web
+python web_server/api.py --port 8766
+```
+
+网页参数和 Python 接口见 [`web_server/README.md`](../web_server/README.md)。
 
 GPU 诊断、CUDA 扩展编译与验证须在 Codex 沙箱外运行，遵循根目录 `AGENTS.md`；沙箱内 GPU 不可见不能作为驱动异常的依据。
 
@@ -100,6 +114,6 @@ python setup/fix_decord_metadata.py
 ```bash
 python -B -m unittest discover -s tests -p test_setup_helpers.py -v
 bash -n setup/common.sh setup/install_qwen.sh setup/install_harvester.sh setup/install_sam3.sh
-bash -n setup/install_gem_x.sh setup/install_soma_x.sh setup/install_environments.sh
+bash -n setup/install_gem_x.sh setup/install_soma_x.sh setup/install_web.sh setup/install_environments.sh
 bash setup/install_environments.sh all --dry-run
 ```

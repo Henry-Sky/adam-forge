@@ -23,3 +23,6 @@ venv/
 /outputs/
 /tests/*
 !/tests/test_setup_helpers.py
+!/tests/test_soma_gaussian_binding.py
+/web_server/src/static/.vendor/
+/web_server/output/

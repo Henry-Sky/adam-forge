@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AdamForge Web Server · 人工配准</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/","@sparkjsdev/spark":"/vendor/spark/dist/spark.module.js"}}</script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/adam-forge-web-server/"><span class="brand-icon">◈</span><strong>AdamForge</strong><span class="divider"></span><span>人体配准工作台</span></a>
+    <div class="top-actions"><span id="save-state" class="pill">未加载</span><div class="asset-import-actions toolbar-file-actions"><button id="save" title="导出到服务器目录">↗ 导出</button><button id="download-models" title="下载到本地目录">↓ 下载</button></div></div>
+  </header>
+  <main>
+    <aside class="left panel">
+      <div class="eyebrow">REGISTRATION / 01</div><h1>空间对齐</h1><p class="muted intro">切换操作对象，调整高斯与 SOMA 的相对变换。</p>
+      <section><div class="section-title">当前资产 <span class="tiny">TEMP</span></div><div class="asset-import-actions"><button id="import-assets">↳ 导入</button><button id="upload-assets">↑ 上传</button></div><div class="asset-card" id="gaussian-asset-card"><span class="asset-icon">◉</span><div class="asset-details"><strong id="asset-name">Gaussian 模型</strong><small id="asset-count">尚未选择文件</small></div><span id="gaussian-asset-status" class="asset-status" role="status">未导入</span></div><div class="asset-card" id="soma-asset-card"><span class="asset-icon">♧</span><div class="asset-details"><strong>SOMA 人体</strong><small id="soma-count">尚未选择文件</small></div><span id="soma-asset-status" class="asset-status" role="status">未导入</span></div></section>
+      <section><div class="section-title">显示图层</div>
+        <label class="toggle-row"><span><i class="swatch cloud"></i>高斯人物</span><input id="show-cloud" type="checkbox" checked></label>
+        <label class="toggle-row"><span><i class="swatch skeleton"></i>SOMA 骨架</span><input id="show-bones" type="checkbox" checked></label>
+        <label class="toggle-row"><span><i class="swatch mesh"></i>人体网格</span><input id="show-mesh" type="checkbox" checked></label>
+        <label class="toggle-row"><span>网格线框</span><input id="wireframe" type="checkbox"></label>
+        <div class="range-label"><span>网格不透明度</span><output id="mesh-alpha-value">30%</output></div><input id="mesh-alpha" type="range" min="0" max="1" step="0.01" value="0.3">
+        <label class="select-label">高斯显示<select id="cloud-mode"><option value="splats">真实 Gaussian splats</option><option value="points">点云检查模式</option></select></label>
+        <div class="range-label"><span>点云 opacity 阈值</span><output id="threshold-value">0.10</output></div><input id="threshold" type="range" min="0" max="0.9" step="0.01" value="0.1">
+      </section>
+      <section class="reference-section"><div class="section-title">参考图 <button id="toggle-reference" class="text-button">收起</button></div><img id="reference" alt="人体姿态参考图"><p class="caption">来自本地推理输入</p></section>
+      <div class="local-note"><span class="dot"></span> 本机运行 · 原始文件保持不变</div>
+    </aside>
+    <section class="workspace">
+      <div class="viewport-toolbar"><div class="segmented" id="view-buttons"><button data-view="perspective" class="selected">透视</button><button data-view="front">正面</button><button data-view="side">左侧面</button><button data-view="back">背面</button><button data-view="top">顶视</button></div><div><button id="fit" title="聚焦人物 (F)">⌖ 聚焦</button><button id="grid-toggle" class="selected">网格</button></div></div>
+      <div id="viewport" aria-label="SOMA 与 Gaussian 三维配准视窗"><div id="loading" class="loading"><div class="spinner"></div><strong>正在准备三维场景</strong><span>读取本地人体与 Gaussian 数据…</span></div><div class="viewport-label"><span class="dot"></span><span id="view-label">透视视图</span><span class="axis-tag">Z ↑</span></div><div id="notification" role="status"></div><canvas id="axis-preview" aria-label="实时世界坐标轴预览：X 正面、Y 左侧、Z 向上"></canvas><div class="interaction-hint">左键旋转视角 <span>·</span> 右键平移 <span>·</span> 滚轮缩放</div></div>
+      <div class="bottom-bar"><span id="render-status">正在初始化 WebGL2…</span><span id="selection-status">整体配准 · 以髋关节为旋转中心</span><span id="fps">— FPS</span></div>
+    </section>
+    <aside class="right panel">
+      <div class="eyebrow">REGISTRATION TRANSFORM</div><div class="heading-row"><h2>变换参数</h2><span class="tiny accent">SIM(3)</span></div>
+      <label class="select-label">操作对象<select id="edit-target"><option value="soma">SOMA 人体</option><option value="gaussian">高斯模型</option></select></label><div class="segmented transform-modes"><button id="translate" class="selected">↔ 平移 <kbd>W</kbd></button><button id="rotate">⟳ 旋转 <kbd>E</kbd></button></div>
+      <label class="select-label">操作坐标系<select id="space"><option value="world">世界坐标</option><option value="local">对象局部坐标</option></select></label>
+      <section><div class="section-title">位置 <span class="tiny">PLY 单位</span></div><div id="position-inputs" class="vector-inputs"></div></section>
+      <section><div class="section-title">旋转 <span class="tiny">角度 · XYZ</span></div><div id="rotation-inputs" class="vector-inputs"></div></section>
+      <section><div class="section-title">统一缩放</div><div class="scale-control"><span>XYZ</span><input id="scale" type="number" min="0.000001" step="0.001" value="1"><button id="scale-down" title="缩小 1%">−</button><button id="scale-up" title="放大 1%">+</button></div><p class="caption">SOMA 以髋部为操作中心。导出矩阵始终映射到原始 PLY 坐标。</p></section>
+      <div class="history-actions"><button id="undo" disabled>↶ 撤销</button><button id="redo" disabled>↷ 重做</button></div><button id="reset" class="full-width">恢复自动配准结果</button>
+      <section><div class="section-title">当前矩阵 <button id="copy-matrix" class="text-button">复制</button></div><pre id="matrix">等待场景加载</pre></section>
+      <div class="info-box"><strong>整体变换</strong><p>本页不修改关节角度或骨长。调整后，原蒙皮权重需要重新计算。</p></div>
+      <div id="last-save" class="caption save-result"></div>
+    </aside>
+  </main>
+  <dialog id="asset-dialog" class="project-form asset-dialog"><form id="asset-form"><div class="heading-row"><h2 id="asset-dialog-title">从服务器导入</h2><button type="button" id="close-asset-dialog">×</button></div><p class="caption">导入 SOMA NPZ 和 Gaussian PLY，暂存后进入配准。</p><label>SOMA NPZ<div class="server-path-row" id="asset-soma-server-row"><input id="asset-soma-path" placeholder="/服务器路径/soma_parameters.npz"><button type="button" id="browse-soma">浏览…</button></div><input id="asset-soma-file" type="file" accept=".npz" hidden></label><label>Gaussian PLY<div class="server-path-row" id="asset-ply-server-row"><input id="asset-ply-path" placeholder="/服务器路径/gaussians.ply"><button type="button" id="browse-ply">浏览…</button></div><input id="asset-ply-file" type="file" accept=".ply" hidden></label><label class="toggle-row"><span>按轴向与人物高度初始化对齐</span><input id="asset-initialize" type="checkbox" checked></label><button id="confirm-asset-import" class="primary full-width" type="submit">导入并配准</button><p id="asset-import-message" class="caption" role="status"></p></form></dialog>
+  <dialog id="server-browser" class="project-form server-browser"><div class="heading-row"><h2 id="browser-title">浏览服务器文件</h2><button type="button" id="close-server-browser">×</button></div><div class="server-path-row"><button type="button" id="browser-parent">↑ 上级</button><input id="browser-directory" aria-label="服务器目录路径"><button type="button" id="browser-go">前往</button></div><p id="browser-message" class="caption" role="status"></p><div id="browser-entries" class="browser-entries"></div><button type="button" id="browser-select-directory" class="primary full-width" hidden>选择当前目录</button></dialog>
+  <script type="module" src="/app.js"></script><script type="module" src="/asset-import.js"></script>
+</body>
+</html>
