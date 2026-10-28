@@ -92,7 +92,7 @@ def handler_for(store):
 
         def do_POST(self):
             path=urlsplit(self.path).path
-            if path not in ('/api/save','/api/projects'):
+            if path not in ('/api/save','/api/commit','/api/projects'):
                 return self.send_error(404)
             origin = self.headers.get('Origin')
             if origin and urlsplit(origin).netloc != self.headers.get('Host'):
@@ -106,7 +106,7 @@ def handler_for(store):
                     result=store.create(payload)
                 else:
                     ident=parse_qs(urlsplit(self.path).query).get('project',[''])[0]
-                    result=store.save(ident,payload)
+                    result=store.commit(ident,payload) if path=='/api/commit' else store.save(ident,payload)
                 self.json_response(result)
             except (ValueError,KeyError,TypeError) as error:
                 self.json_response({'error':str(error)},400)

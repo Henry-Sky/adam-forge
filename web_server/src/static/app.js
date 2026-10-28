@@ -14,7 +14,21 @@ let cloudVisible=true, splatsReady=false, draftKey, restoreDraft=false;
 // Right-handed basis: old (x,y,z) -> new (z,x,y); new world is Z-up.
 const displayBasis=new THREE.Matrix4().set(0,0,1,0, 1,0,0,0, 0,1,0,0, 0,0,0,1);
 const displayRotation=new THREE.Quaternion().setFromRotationMatrix(displayBasis);
-let notificationTimer, cloudRoot, savedViewerState;
+let notificationTimer, cloudRoot, savedViewerState, editBaselines;
+function baselineParts(object){
+  const position=new THREE.Vector3(),quaternion=new THREE.Quaternion(),scale=new THREE.Vector3();
+  threeMatrix(editBaselines[object===rig?'soma':'cloud']).decompose(position,quaternion,scale);
+  return {position,quaternion,scale};
+}
+function editParts(object){
+  const base=baselineParts(object);
+  return {position:object.position.clone().sub(base.position),quaternion:object.quaternion.clone().multiply(base.quaternion.invert()),scale:object.scale.clone().divide(base.scale)};
+}
+function applyEdit(object,matrix){
+  const base=baselineParts(object);
+  matrix.decompose(object.position,object.quaternion,object.scale);
+  object.position.add(base.position);object.quaternion.multiply(base.quaternion);object.scale.multiply(base.scale);
+}
 function hasChanges(){return data?.project_mode&&savedViewerState?!sameState(snapshot(),savedViewerState):!equal(sourceTransform(),savedMatrix);}
 function activeObject(){return $("edit-target").value==="gaussian"?cloudRoot:rig;}
 function snapshot(){rig.updateMatrix();cloudRoot.updateMatrix();return {soma:rowMatrix(rig.matrix),cloud:rowMatrix(cloudRoot.matrix)};}
@@ -63,15 +77,16 @@ function payload(m=sourceTransform()){
 function syncInputs(){
   if(!rig)return;
   const object=activeObject()||rig;
-  const angles=new THREE.Euler().setFromQuaternion(object.quaternion,'XYZ');
-  numeric.position.forEach((el,i)=>el.value=object.position.getComponent(i).toFixed(5));
+  const parts=editBaselines?editParts(object):object;
+  const angles=new THREE.Euler().setFromQuaternion(parts.quaternion,'XYZ');
+  numeric.position.forEach((el,i)=>el.value=parts.position.getComponent(i).toFixed(5));
   numeric.rotation.forEach((el,i)=>el.value=THREE.MathUtils.radToDeg(angles.toArray()[i]).toFixed(3));
-  $('scale').value=object.scale.x.toFixed(6);
+  $('scale').value=parts.scale.x.toFixed(6);
   const m=sourceTransform();
   $('matrix').textContent=m.map(row=>row.map(v=>(v>=0?' ':'')+v.toFixed(5)).join('  ')).join('\n');
   $('undo').disabled=undoStack.length<2;$('redo').disabled=!redoStack.length;
   const dirty=hasChanges();
-  $('save-state').textContent=dirty?'待导出':'已导出 / 初始状态';
+  $('save-state').textContent=dirty?'待保存':'已保存 / 初始状态';
   $('save-state').classList.toggle('dirty',dirty);
 }
 for(const kind of ['position','rotation']){
@@ -86,8 +101,10 @@ for(const kind of ['position','rotation']){
       const values=numeric[kind].map(x=>Number(x.value));
       if(!values.every(Number.isFinite)){syncInputs();return notify('请输入有限数值',true);}
       const object=activeObject();
-      if(kind==='position')object.position.fromArray(values);
-      else object.quaternion.setFromEuler(new THREE.Euler(...values.map(THREE.MathUtils.degToRad),'XYZ'));
+      const parts=editParts(object);
+      if(kind==='position')parts.position.fromArray(values);
+      else parts.quaternion.setFromEuler(new THREE.Euler(...values.map(THREE.MathUtils.degToRad),'XYZ'));
+      applyEdit(object,new THREE.Matrix4().compose(parts.position,parts.quaternion,parts.scale));
       commit();
     });
   }
@@ -95,11 +112,12 @@ for(const kind of ['position','rotation']){
 function setScale(s){
   if(!rig)return;
   if(!Number.isFinite(s)||s<=1e-6||s>=1e6){syncInputs();return notify('缩放必须为正且在有效范围内',true);}
-  activeObject().scale.setScalar(s);commit();
+  const object=activeObject(),parts=editParts(object);parts.scale.setScalar(s);
+  applyEdit(object,new THREE.Matrix4().compose(parts.position,parts.quaternion,parts.scale));commit();
 }
 $('scale').addEventListener('change',e=>setScale(Number(e.target.value)));
-$('scale-up').onclick=()=>rig&&setScale(activeObject().scale.x*1.01);
-$('scale-down').onclick=()=>rig&&setScale(activeObject().scale.x/1.01);
+$('scale-up').onclick=()=>rig&&setScale(editParts(activeObject()).scale.x*1.01);
+$('scale-down').onclick=()=>rig&&setScale(editParts(activeObject()).scale.x/1.01);
 function mode(value){
   if(!gizmo)return;
   gizmo.setMode(value);
@@ -109,7 +127,7 @@ $('translate').onclick=()=>mode('translate');$('rotate').onclick=()=>mode('rotat
 $('space').onchange=e=>gizmo?.setSpace(e.target.value);
 $('undo').onclick=()=>{if(undoStack.length<2)return;redoStack.push(undoStack.pop());restore(undoStack.at(-1));rememberDraft(sourceTransform());};
 $('redo').onclick=()=>{if(!redoStack.length)return;const m=redoStack.pop();undoStack.push(m);restore(m);rememberDraft(sourceTransform());};
-$('reset').onclick=()=>{if(!rig)return;cloudRoot.position.set(0,0,0);cloudRoot.quaternion.copy(displayRotation);cloudRoot.scale.setScalar(1);setTransform(baseMatrix);commit();notify('已恢复自动配准结果，可撤销');};
+$('reset').onclick=()=>{if(!rig)return;restore(editBaselines);commit();notify('已恢复本次保存或打开状态，可撤销');};
 $('show-cloud').onchange=e=>{cloudVisible=e.target.checked;showCloud();};
 $('show-bones').onchange=e=>{if(bones)bones.visible=e.target.checked;};
 $('show-mesh').onchange=e=>{if(mesh)mesh.visible=e.target.checked;};
@@ -242,12 +260,15 @@ function initializeEmpty(){
   $('render-status').textContent='请从左侧导入或上传 SOMA 与 Gaussian';
   $('selection-status').textContent='尚未加载资产';
   document.querySelector('.reference-section').hidden=true;
-  for(const id of ['save','download-models','reset','scale-up','scale-down'])$(id).disabled=true;
+  for(const id of ['commit','save','download-models','reset','scale-up','scale-down'])$(id).disabled=true;
   window.registrationApp={ready:true,empty:true,renderer,scene};
 }
 async function initialize(){
   if(!projectId)return initializeEmpty();
   const response=await fetch(assetUrl('/api/scene'));if(!response.ok){initializeEmpty();notify('临时资产已失效，请重新导入 SOMA 和 PLY');return;}data=await response.json();
+  // Saved geometry is already in world space: both object local frames must
+  // start with identity rotation/scale, including when the gizmo uses local axes.
+  if(data.aligned_world){displayBasis.identity();displayRotation.identity();}
   baseMatrix=validateMatrix(data.matrix);savedMatrix=baseMatrix;
   if(data.project_mode){$('reset').textContent='恢复本次打开状态';document.querySelector('.local-note').lastChild.textContent=' 临时导入 · 导出到新目录 · 源文件不变';}
   draftKey=`soma-registration:zup-v1:${data.source_ply_sha256}:${data.source_soma_sha256}`;
@@ -270,7 +291,7 @@ async function initialize(){
   gizmo=new TransformControls(camera,renderer.domElement);gizmo.attach(rig);scene.add(gizmo.getHelper());gizmo.setSize(.85);
   gizmo.addEventListener('dragging-changed',event=>{orbit.enabled=!event.value;if(!event.value)commit();});
   gizmo.addEventListener('objectChange',syncInputs);
-  undoStack=[snapshot()];savedViewerState=snapshot();
+  undoStack=[snapshot()];savedViewerState=snapshot();editBaselines=snapshot();
   try{
     const draft=JSON.parse(localStorage.getItem(draftKey));
     if(draft&&((data.project_mode&&draft.viewer_state)?!sameState(draft.viewer_state,savedViewerState):!equal(draft.soma_camera_to_ply,baseMatrix))&&confirm('发现该资产的本地配准草稿，是否恢复？')){
@@ -287,21 +308,47 @@ async function initialize(){
     renderOnce:()=>{orbit.update();renderer.render(scene,camera);drawAxisPreview();}};
 }
 $('copy-matrix').onclick=async()=>{if(!rig)return;try{await navigator.clipboard.writeText(JSON.stringify(sourceTransform()));notify('矩阵已复制');}catch{notify('浏览器不允许复制矩阵',true);}};
+async function saveResponse(response){
+  if(response.status===404)throw Error('当前后端尚未加载保存接口，请重启网页服务后刷新页面；浏览器草稿仍保留');
+  if(!response.headers.get('Content-Type')?.includes('application/json'))throw Error(`保存接口返回异常响应（HTTP ${response.status}），请检查服务日志`);
+  const result=await response.json();
+  if(!response.ok)throw Error(result.error||`保存失败（HTTP ${response.status}）`);
+  return result;
+}
 async function exportModels(target){
-  if(!rig)return;$('save').disabled=true;$('download-models').disabled=true;
+  if(!rig)return;for(const id of ['commit','save','download-models'])$(id).disabled=true;
   try{
     const destination=await prepareExport(target);
     const p={...payload(),...destination};const response=await fetch(assetUrl('/api/save'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});
-    const result=await response.json();if(!response.ok)throw Error(result.error||'保存失败');
+    const result=await saveResponse(response);
     const location=result.destination==='local'?await finishLocalExport(result):result.directory;
     savedMatrix=p.soma_camera_to_ply;savedViewerState=snapshot();syncInputs();$('last-save').textContent='已导出：'+location;notify('已导出配准 SOMA 和 PLY；导入文件保持不变');
-  }catch(error){if(error.name!=='AbortError')notify(error.message,true);}finally{$('save').disabled=false;$('download-models').disabled=false;}
+  }catch(error){if(error.name!=='AbortError')notify(error.message,true);}finally{for(const id of ['commit','save','download-models'])$(id).disabled=false;}
 }
+$('commit').onclick=async()=>{
+  if(!rig)return;
+  for(const id of ['commit','save','download-models'])$(id).disabled=true;
+  // Freeze edits until the saved pair has been reloaded.
+  loading=true;gizmo.detach();viewport.style.pointerEvents='none';
+  const controls=[...document.querySelectorAll('aside input, aside select, aside button')];
+  const disabled=controls.map(el=>el.disabled);controls.forEach(el=>el.disabled=true);
+  try{
+    const response=await fetch(assetUrl('/api/commit'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});
+    const result=await saveResponse(response);
+    try{localStorage.removeItem(draftKey);}catch{/* Saved files are authoritative. */}
+    savedViewerState=snapshot();notify('已保存临时副本，正在更新模型');location.reload();
+  }catch(error){
+    loading=false;gizmo.attach(activeObject());viewport.style.pointerEvents='';
+    controls.forEach((el,i)=>el.disabled=disabled[i]);
+    for(const id of ['commit','save','download-models'])$(id).disabled=false;
+    notify(error.message,true);
+  }
+};
 $('save').onclick=()=>exportModels('server');
 $('download-models').onclick=()=>exportModels('local');
 window.addEventListener('keydown',e=>{
   if(loading||['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return;
-  const k=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&k==='s'){e.preventDefault();$('save').click();}
+  const k=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&k==='s'){e.preventDefault();$('commit').click();}
   else if((e.ctrlKey||e.metaKey)&&k==='z'){e.preventDefault();$(e.shiftKey?'redo':'undo').click();}
   else if((e.ctrlKey||e.metaKey)&&k==='y'){e.preventDefault();$('redo').click();}
   else if(k==='w')mode('translate');else if(k==='e')mode('rotate');else if(k==='f')$('fit').click();

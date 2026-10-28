@@ -74,7 +74,7 @@ conda_command() {
 }
 
 fix_decord_metadata() {
-    run python "$SETUP_DIR/fix_decord_metadata.py"
+    run python "$PROJECT_DIR/tools/fix_decord_metadata.py"
 }
 
 # Disable inherited pip indexes/configuration so each attempt uses its declared sources.

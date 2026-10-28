@@ -37,6 +37,7 @@ class SceneAssets:
     def make_scene(self):
         z = self.data
         return {
+            'aligned_world': self.registration.get('format') == 'aligned_pair_v1',
             'name': self.ply.parent.name, 'gaussians': self.registration['gaussians'],
             'source_ply_sha256': self.ply_hash, 'source_soma_sha256': sha256(self.soma),
             'source_soma': str(self.soma), 'source_ply': str(self.ply),

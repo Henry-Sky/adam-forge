@@ -1,5 +1,7 @@
 # Conda 环境安装
 
+`setup/` 统一保留 Bash 安装入口与共享函数；Python 辅助工具位于 `tools/`，由安装脚本使用目标环境的 Python 调用。
+
 在仓库根目录执行（脚本也支持从其他工作目录运行）：
 
 ```bash
@@ -43,7 +45,7 @@ SOMA-X 脚本安装基础人体与骨架依赖，不安装可选 SMPL/Anny 后�
 两者只执行导入检查，不构造模型、不自动下载模型资源。权重路径和来源见 [`checkpoint/README.md`](../checkpoint/README.md)。
 
 网页服务独立环境为 `<prefix>-web`（默认 `adam-web`），仅安装 Python 3.12、NumPy、SciPy，不需要 Torch、CUDA 或模型权重。
-`install_web.sh` 同时调用 `install_web_vendor.py` 将固定版本 Three.js / Spark 安装到忽略的 `web_server/src/static/.vendor/`，优先直连国内 npm 镜像，失败或 SHA-512 不匹配时回退官方源。已准备的前端包会复用，不重复下载。
+`install_web.sh` 同时调用 `tools/install_web_vendor.py` 将固定版本 Three.js / Spark 安装到忽略的 `web_server/src/static/.vendor/`，优先直连国内 npm 镜像，失败或 SHA-512 不匹配时回退官方源。已准备的前端包会复用，不重复下载。
 
 ```bash
 bash setup/install_web.sh --prefix adam
@@ -103,10 +105,10 @@ Qwen 使用发布版 `diffusers==0.37.0`（支持 2511 权重的 `zero_cond_t` �
 
 Conda 安装期间可能重新激活环境；共享 helper 在调用 Conda 时暂时关闭 Bash nounset，并保留失败退出码，兼容 CUDA Toolkit 的上游激活脚本。
 
-decord 0.6.0 的 Linux wheel 文件名为 `py3-none-manylinux2010_x86_64`，内部却声明旧的 Python 3.6 标签（[上游问题 #356](https://github.com/dmlc/decord/issues/356)）。SAM3 和 Harvester 安装后运行 `fix_decord_metadata.py`，仅修正这一已知标签及对应 RECORD 校验值，不更改解码库。可用目标环境的 Python 单独运行：
+decord 0.6.0 的 Linux wheel 文件名为 `py3-none-manylinux2010_x86_64`，内部却声明旧的 Python 3.6 标签（[上游问题 #356](https://github.com/dmlc/decord/issues/356)）。SAM3 和 Harvester 安装后运行 `tools/fix_decord_metadata.py`，仅修正这一已知标签及对应 RECORD 校验值，不更改解码库。可用目标环境的 Python 单独运行：
 
 ```bash
-python setup/fix_decord_metadata.py
+python tools/fix_decord_metadata.py
 ```
 
 安装 helper 的回归测试使用 Python 标准库，所有文件夹具写入临时目录：

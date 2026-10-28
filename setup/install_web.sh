@@ -13,7 +13,7 @@ PYTHON_VERSION=3.12
 parse_args "$@"
 prepare_env "$PROJECT_DIR/web_server"
 pip_install 'numpy>=1.26,<3' 'scipy>=1.11,<2'
-run python "$SETUP_DIR/install_web_vendor.py"
+run python "$PROJECT_DIR/tools/install_web_vendor.py"
 run env PYTHONPATH="$PROJECT_DIR" python -c 'from web_server.api import create_server; import numpy, scipy; print("Web service imports ready")'
 run python "$PROJECT_DIR/web_server/api.py" --help
 finish

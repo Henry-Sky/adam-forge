@@ -1,5 +1,22 @@
 # 独立工具
 
+## 安装辅助工具
+
+以下工具只依赖 Python 标准库，无命令行参数，通常由 `setup/` 的 Bash 安装脚本自动调用。
+安装流程、依赖版本与下载源见 [`setup/README.md`](../setup/README.md)。
+
+- `install_web_vendor.py`：安装并校验网页 Three.js / Spark 依赖，需要系统提供 curl；输出到忽略的 `web_server/src/static/.vendor/`，路径不受当前工作目录影响。
+- `fix_decord_metadata.py`：使用目标环境的 Python 修复已安装 decord 0.6.0 的已知 wheel 标签及 RECORD 校验值，会修改该环境的包元数据。
+
+在仓库根目录单独运行：
+
+```bash
+conda activate adam-web
+python tools/install_web_vendor.py
+conda activate adam-sam3
+python tools/fix_decord_metadata.py
+```
+
 ## SOMA 与 Gaussian 配准、蒙皮权重转移
 
 `align_soma_gaussians.py` 将 GEM-X 导出的 SOMA MID 人体网格对齐到

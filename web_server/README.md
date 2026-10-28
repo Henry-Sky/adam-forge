@@ -35,7 +35,7 @@ ssh -L 8766:127.0.0.1:8766 <服务器>
 - Gaussian：本项目 Harvester 的 float32 binary little-endian PLY，包含 DC 颜色、opacity logits、
   log scales、wxyz 四元数。当前拒绝高阶球谐 PLY，避免旋转后外观方向出错。
 - 本地上传单文件不超过 45 MB；更大文件先放到服务器，再通过服务器路径导入。
-- Harvester/GEM-X 原始输出可开启按轴向与高度初始化；已在共同坐标系的文件请关闭。
+- Harvester/GEM-X 原始输出可开启按轴向与高度初始化；本工具导出的共同坐标系 NPZ 会自动识别并跳过再次初始化，避免重复换轴。其他已对齐文件请关闭初始化。
 
 ## 配准
 
@@ -48,7 +48,9 @@ ssh -L 8766:127.0.0.1:8766 <服务器>
 
 ## 导出目录与记忆
 
-右上角“导出”将模型写到服务器目录，“下载”将模型保存到本地；按钮与左侧“导入 / 上传”采用相同样式。点击时选择各自目录并保留记忆，右侧不再重复显示导出目录面板。
+右上角“保存”将当前变换写入项目临时 NPZ / PLY 的原始参数，重新加载后右侧平移、旋转归零、缩放恢复为 1，配准后的模型位置保持不变；两个对象的局部坐标轴同步与世界坐标轴对齐，切换“对象局部坐标”不会恢复保存前的轴向，SOMA 操作中心仍位于髋部；保存会清除当前变换的撤销历史和浏览器草稿。源文件不变，关闭临时服务后仍需通过导出或下载保留结果。
+
+“导出”将模型写到服务器目录，“下载”将模型保存到本地；按钮与左侧“导入 / 上传”采用相同样式。点击时选择各自目录并保留记忆，右侧不再重复显示导出目录面板。
 
 **服务器：** 点击“导出”弹出与导入面板同风格的窗口，填写服务器上的导出根目录；右侧“浏览…”可进入服务器目录，并通过“选择当前目录”回填路径。浏览器 localStorage 记住上次路径及选择。
 每次在该根目录下自动创建 `aligned-<时间戳>-<标识>/`，可以反复导出，不覆盖已有结果。
@@ -65,7 +67,7 @@ ZIP 的下载位置由浏览器设置决定，网页不能读取或记住任意�
 
 ```text
 aligned-<时间戳>-<标识>/
-├── soma.npz             # 已变换的 SOMA 网格、骨架及保留参数
+├── soma.npz             # 已更新原始参数及网格、骨架的 SOMA 模型
 ├── gaussians.ply        # 已变换的 Gaussian
 └── registration.json    # 应用的两个对象变换、来源哈希和坐标说明
 ```
@@ -74,14 +76,16 @@ aligned-<时间戳>-<标识>/
 本地原生目录写入失败会尝试移除本次新子目录；浏览器中断仍可能留下不完整子目录。
 不对文件系统、浏览器和服务器之间作跨系统原子性保证。
 
-SOMA 网格与骨架写入共同导出空间；原始体型/姿态参数保留，并累计
-`parameter_geometry_transform` 表明参数解码几何到导出几何的映射。
-原始相机相关字段移入 `original_*`，避免误用于已变换几何。
+保存和导出都将 SOMA 的 `global_orient`（旋转矩阵）、`camera_translation`（现为共同空间的根平移）和原生 `global_scale` 同步更新，网格与骨架缓存与参数一致。
+局部 `body_pose`、`identity_coeffs` 和局部骨骼 `scale_params` 保持不变；GEM-X packed57 的 GS1 固定为 1，整体缩放使用 SOMA 原生 `global_scale`，不能直接交给忽略该字段的 GEM-X 固定 GS1 解码器。
+使用 SOMA 解码时，将 `global_orient` 与 `body_pose` 拼成 77 个关节旋转，`camera_translation` 传给 `transl`、`global_scale` 传给同名参数；packed57 移除首位 GS1，并按 v0.3.3 约定补齐 4 个值为 1 的 Foot/ToeBase 局部尺度。保留原模型对应的 reference pose 和 procedural profile（GEM-X 示例为 v0.2.0 / legacy_pose021）。
+旧导出的 `parameter_geometry_transform` 会吸收到这些原始参数中，随后删除，避免重复应用。缺少原始参数的 NPZ 会明确拒绝保存与导出。
+原始 `intrinsics`、`keypoints_2d` 移入 `original_*`，避免误用于已变换几何。
 Gaussian 的中心、方向四元数和 log scale 同步变换，颜色、opacity 和行序保持不变。
 导出后的两个模型已经在共同空间，`registration.json.soma_camera_to_ply` 为单位矩阵。
 旧蒙皮权重需要针对新文件重新计算。
 
-`Ctrl/Cmd+S` 触发服务器导出，未导出修改仍保留在当前页面和浏览器草稿。
+`Ctrl/Cmd+S` 触发保存临时副本，未导出修改仍保留在当前页面和浏览器草稿。
 关闭服务前请完成模型导出，草稿不包含模型文件。
 
 ## 验证
@@ -93,11 +97,11 @@ node --check web_server/src/static/app.js
 node --check web_server/src/static/export-location.js
 ```
 
-测试只写临时目录，验证两种导入、导出中心/四元数/尺度、输入不变、失败不发布半成品、
+测试只写临时目录，验证原始参数更新与旧映射迁移、连续保存不重复变换、版本冲突、保存失败回滚、两种导入、导出中心/四元数/尺度、源文件不变、失败不发布半成品、
 本地 ZIP 内容和临时目录清理。浏览器实测覆盖服务器导出、本地 ZIP 导出和目录偏好恢复。
 本地原生目录选择需要用户手势，权限行为由浏览器控制。
 
-入口为 `api.py`；`src/server.py` 负责 HTTP 路由，`src/sessions.py` 负责临时导入和模型导出，`src/models.py` 负责场景与矩阵校验，`src/static/` 为前端。已移除旧固定资产模式、项目列表页面及覆盖保存代码。
+入口为 `api.py`；`src/server.py` 负责 HTTP 路由，`src/sessions.py` 负责临时导入和模型导出，`src/models.py` 负责场景与矩阵校验，`src/static/` 为前端。保存只更新当前项目临时副本，导出写入新目录。
 
 ## Python 接口与目录
 
@@ -125,7 +129,7 @@ finally:
 
 运行 `python web_server/api.py --help` 查看参数。支持 `python -m web_server.api`。
 `GET /api/browse` 浏览服务器文件，`POST /api/projects` 导入临时资产，
-`GET /api/scene?project=<id>` 获取场景，`POST /api/save?project=<id>` 导出模型；
+`GET /api/scene?project=<id>` 获取场景，`POST /api/commit?project=<id>` 保存临时模型并递增版本，`POST /api/save?project=<id>` 导出模型；
 下载使用 `/exports/<id>/<filename>`。接口名称保留以兼容现有前端，未保留旧页面或旧启动脚本。
 
-安装入口统一位于 `setup/install_web.sh`，前端包下载和 SHA-512 校验由 `setup/install_web_vendor.py` 辅助执行。支持 `--prefix`、`--reuse`、`--dry-run`；网页服务只需 NumPy/SciPy，不安装 Torch、CUDA 或模型权重。
+安装入口统一位于 `setup/install_web.sh`，前端包下载和 SHA-512 校验由 `tools/install_web_vendor.py` 辅助执行。支持 `--prefix`、`--reuse`、`--dry-run`；网页服务只需 NumPy/SciPy，不安装 Torch、CUDA 或模型权重。

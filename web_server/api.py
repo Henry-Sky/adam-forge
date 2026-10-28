@@ -23,6 +23,7 @@ HTTP 接口：
     GET  /api/browse?type=npz|ply&path=...   浏览服务器目录
     POST /api/projects                    临时导入 SOMA / PLY
     GET  /api/scene?project=<id>            读取场景
+    POST /api/commit?project=<id>          更新项目临时模型参数
     POST /api/save?project=<id>            导出已配准文件，不覆盖导入源
     GET  /exports/<id>/<file>              下载导出文件或 ZIP
 """

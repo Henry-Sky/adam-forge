@@ -12,6 +12,8 @@
 
 Refer to `setup/README.md` for module Conda environments, prerequisites, installation commands, options, and validation steps. Verify referenced scripts exist before use; the root README includes references to removed tooling.
 
+When developing `web_server/`, keep dependency configuration and installation scripts synchronized with the code. Any addition, removal, or version change to Python or frontend dependencies must update `setup/install_web.sh` and/or `tools/install_web_vendor.py` as applicable, together with `setup/README.md` and `web_server/README.md`. Verify the affected installation steps and service imports so a freshly installed environment can run the updated service; do not rely on manually installed local packages.
+
 ## Download Sources and Proxy Traffic
 
 Prefer trusted domestic mirrors for dependency packages, source archives, model weights, and other downloads to reduce traffic through the default proxy. Check existing local caches before downloading, and use resumable downloads when supported. Verify mirrored files against upstream checksums or pinned versions/commits where available.

@@ -15,6 +15,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from .models import SceneAssets, sha256, validate_matrix
+from .parameters import transform_soma
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -69,6 +70,7 @@ class SessionStore:
                 joints=np.array(z['joints_camera'])
                 names=np.array(z['joint_names'])
                 parents=np.array(z['joint_parent_ids'])
+                aligned_world=str(z['geometry_coordinate_system'].item())=='project_world' if 'geometry_coordinate_system' in z else False
             if vertices.ndim!=2 or vertices.shape[1]!=3 or len(vertices)<3 or not np.isfinite(vertices).all():
                 raise ValueError('SOMA NPZ 网格不正确')
             if faces.ndim!=2 or faces.shape[1]!=3 or faces.dtype.kind not in 'iu' or faces.min()<0 or faces.max()>=len(vertices):
@@ -91,7 +93,7 @@ class SessionStore:
             if any(key.startswith('f_rest_') for key in cloud):
                 raise ValueError('当前支持 Harvester 的 DC 颜色 PLY；高阶球谐文件需先转换，避免方向变换后颜色错误')
             matrix=np.eye(4)
-            if payload.get('initialize',True):
+            if payload.get('initialize',True) and not aligned_world:
                 points=np.column_stack([cloud[k] for k in ('x','y','z')])
                 alpha=1/(1+np.exp(-cloud['opacity'].astype(float)))
                 visible=points[alpha>=.1]
@@ -106,7 +108,7 @@ class SessionStore:
             now=datetime.now(timezone.utc).isoformat()
             meta={'id':ident,'name':name,'created_at':now,'updated_at':now,'revision':0,'gaussians':len(cloud['x']),'vertices':len(vertices),'joints':len(joints)}
             atomic_json(folder/'project.json',meta)
-            atomic_json(folder/'registration.json',{'soma_camera_to_ply':matrix.tolist(),'gaussians':len(cloud['x']),'source_ply_sha256':sha256(folder/'gaussians.ply')})
+            atomic_json(folder/'registration.json',{'format':'aligned_pair_v1' if aligned_world else 'import_pair_v1','soma_camera_to_ply':matrix.tolist(),'gaussians':len(cloud['x']),'source_ply_sha256':sha256(folder/'gaussians.ply')})
             with self.lock:
                 os.replace(folder,self.folder(ident))
             return meta
@@ -125,7 +127,11 @@ class SessionStore:
                 self.cache[ident]=project
             return self.cache[ident]
 
-    def save(self, ident, payload):
+    def commit(self, ident, payload):
+        """Bake edits into temporary project assets; imported sources stay intact."""
+        return self.save(ident, payload, _commit=True)
+
+    def save(self, ident, payload, *, _commit=False):
         with self.lock:
             project=self.get(ident)
             folder=self.folder(ident)
@@ -142,9 +148,11 @@ class SessionStore:
             soma_world=soma_view@pivot
             if not np.allclose(np.linalg.inv(cloud_view)@soma_world,relative,atol=1e-7):
                 raise ValueError('对象变换与配准矩阵不一致')
-            destination=payload.get('destination','server')
+            destination='session' if _commit else payload.get('destination','server')
             export_id=uuid.uuid4().hex
-            if destination=='local':
+            if _commit:
+                final=folder
+            elif destination=='local':
                 final=self.root/'exports'/export_id
             elif destination=='server':
                 raw=str(payload.get('export_directory','')).strip()
@@ -153,20 +161,11 @@ class SessionStore:
                 final=base/('aligned-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+export_id[:8])
                 if final.is_relative_to(self.root):raise ValueError('不能导出到导入临时目录')
             else:raise ValueError('导出位置不正确')
-            if final.exists():raise ValueError('导出目录已存在，请指定新的子目录')
+            if not _commit and final.exists():raise ValueError('导出目录已存在，请指定新的子目录')
             final.parent.mkdir(parents=True,exist_ok=True)
             transaction=Path(tempfile.mkdtemp(prefix='.registration-export-',dir=final.parent))
             try:
-                values={key:project.data[key].copy() for key in project.data.files}
-                for key in ('vertices_camera','joints_camera'):
-                    values[key]=values[key]@soma_world[:3,:3].T+soma_world[:3,3]
-                # Preserve raw model parameters; explicitly track their geometry mapping.
-                previous=values.get('parameter_geometry_transform',np.eye(4))
-                values['parameter_geometry_transform']=soma_world@previous
-                values['geometry_coordinate_system']=np.array('project_world')
-                # Original image projections no longer describe transformed geometry.
-                for key in ('keypoints_2d','intrinsics','camera_translation'):
-                    if key in values:values.setdefault('original_'+key,values.pop(key))
+                values=transform_soma({key:project.data[key] for key in project.data.files}, soma_world)
                 np.savez_compressed(transaction/'soma.npz',**values)
                 cloud=PLY.read_ply(str(project.ply))
                 xyz=np.column_stack([cloud[k] for k in ('x','y','z')])
@@ -180,6 +179,24 @@ class SessionStore:
                 for i in range(4):cloud[f'rot_{i}']=changed[:,i].astype(np.float32)
                 PLY.write_ply(str(transaction/'gaussians.ply'),len(xyz),cloud)
                 atomic_json(transaction/'registration.json',{'format':'aligned_pair_v1','soma_camera_to_ply':np.eye(4).tolist(),'gaussians':len(xyz),'source_ply_sha256':sha256(transaction/'gaussians.ply'),'source_import_ply_sha256':project.ply_hash,'source_import_soma_sha256':project.scene['source_soma_sha256'],'applied_transforms':{'soma':soma_world.tolist(),'ply':cloud_view.tolist()},'weights_status':'stale: recompute weights for exported geometry'})
+                if _commit:
+                    meta=json.loads((folder/'project.json').read_text())
+                    meta['revision']+=1
+                    meta['updated_at']=datetime.now(timezone.utc).isoformat()
+                    atomic_json(transaction/'project.json',meta)
+                    # Validate everything before replacing the current temporary pair.
+                    candidate=SceneAssets(transaction/'soma.npz',transaction/'gaussians.ply',transaction/'registration.json')
+                    candidate.data.close()
+                    backup=self.root/('.previous-'+uuid.uuid4().hex)
+                    os.rename(folder,backup)
+                    try:
+                        os.rename(transaction,folder)
+                    except Exception:
+                        os.rename(backup,folder)
+                        raise
+                    self.cache.pop(ident).data.close()
+                    shutil.rmtree(backup,ignore_errors=True)
+                    return {'revision':meta['revision'],'saved':True,'reload':True}
                 if final.exists():raise ValueError('导出目录已存在')
                 os.rename(transaction,final)
                 self.exports[export_id]=final
