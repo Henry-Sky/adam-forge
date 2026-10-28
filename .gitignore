@@ -21,4 +21,5 @@ venv/
 /logs/*
 !/logs/README.md
 /outputs/
-/tests/
+/tests/*
+!/tests/test_setup_helpers.py

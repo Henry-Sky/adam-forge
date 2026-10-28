@@ -7,10 +7,8 @@ PYTHON_VERSION=3.12
 parse_args "$@"
 prepare_env "$PROJECT_DIR/third_party/Qwen-Image"
 install_torch
-# Upstream recommends Diffusers from GitHub. Package dependencies use the mirror;
-# GitHub source has no configured trusted domestic mirror, so report direct use.
-warn 'Diffusers source is fetched from official GitHub; PyPI dependencies still use domestic-first fallback'
-pip_install 'transformers>=4.51.3' accelerate safetensors pillow requests sentencepiece \
-    'git+https://github.com/huggingface/diffusers.git'
-run python -c 'from diffusers import QwenImageEditPlusPipeline; import transformers; print("Qwen imports ready")'
+# This release includes QwenImageEditPlusPipeline without a Git source checkout.
+pip_install 'transformers>=4.51.3,<5' accelerate safetensors pillow requests sentencepiece \
+    'diffusers==0.37.0'
+run python -c 'import inspect; from diffusers import QwenImageEditPlusPipeline, QwenImageTransformer2DModel; import transformers; assert "zero_cond_t" in inspect.signature(QwenImageTransformer2DModel.__init__).parameters; print("Qwen 2511 imports ready")'
 finish

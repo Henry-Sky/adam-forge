@@ -27,7 +27,9 @@ bash setup/install_sam3.sh
 三个环境使用 PyTorch 2.10.0、Torchvision 0.25.0、CUDA 12.8 wheels。
 需要预先安装 Conda、curl、Git 和支持 CUDA 12.8 的 NVIDIA 驱动。
 先运行 `git submodule update --init --recursive` 准备源码。
-Harvester 还需要 CUDA 兼容的 GCC/G++（上游测试 GCC 10–13），脚本会在其环境中安装 CUDA Toolkit 12.8 并编译固定版本 gsplat。
+Harvester 还需要 CUDA 兼容的 GCC/G++（上游测试 GCC 10–13），脚本会在其环境中安装 GCC/G++ 12、CUDA Toolkit 12.8 并编译固定版本 gsplat。
+
+GPU 诊断、CUDA 扩展编译与验证须在 Codex 沙箱外运行，遵循根目录 `AGENTS.md`；沙箱内 GPU 不可见不能作为驱动异常的依据。
 
 ## 参数
 
@@ -66,7 +68,26 @@ PyTorch 安装同时尝试两个国内 PyPI 源来解析其依赖。
 - `ADAM_PIP_MIRROR`、`ADAM_PIP_MIRROR_2`：完整 PyPI simple URL，不带末尾 `/`。
 - `ADAM_TORCH_MIRROR`、`ADAM_TORCH_MIRROR_2`：完整 PyTorch cu128 索引 URL，不带末尾 `/`。
 
-Diffusers 和固定提交的 gsplat 从官方 GitHub 拉取源码；脚本会明确警告，
-其 Python 包依赖仍遵循上述国内源优先策略。未配置未经验证的第三方 GitHub 代理。
+Qwen 使用发布版 `diffusers==0.37.0`（支持 2511 权重的 `zero_cond_t` 配置），并将 Transformers 限制在 4.x，避免依赖 Git 克隆及未经验证的大版本升级。安装检查同时确认该参数存在；仅能导入编辑管线不足以验证 2511 兼容性。
+固定提交的 gsplat 从官方 GitHub 拉取源码；脚本会明确警告，
+其 Python 包依赖仍遵循上述国内源优先策略。脚本保留调用环境的代理设置，未配置第三方 GitHub 代理。
 本次安装的后续步骤通过环境目录中的 constraints 文件固定 Torch/Torchvision，防止扩展 ABI 被隐式升级破坏。
 这些脚本只配置环境，权重继续使用仓库现有 `checkpoint/` 路径。
+
+## 安装修复与工具验证
+
+Conda 安装期间可能重新激活环境；共享 helper 在调用 Conda 时暂时关闭 Bash nounset，并保留失败退出码，兼容 CUDA Toolkit 的上游激活脚本。
+
+decord 0.6.0 的 Linux wheel 文件名为 `py3-none-manylinux2010_x86_64`，内部却声明旧的 Python 3.6 标签（[上游问题 #356](https://github.com/dmlc/decord/issues/356)）。SAM3 和 Harvester 安装后运行 `fix_decord_metadata.py`，仅修正这一已知标签及对应 RECORD 校验值，不更改解码库。可用目标环境的 Python 单独运行：
+
+```bash
+python setup/fix_decord_metadata.py
+```
+
+安装 helper 的回归测试使用 Python 标准库，所有文件夹具写入临时目录：
+
+```bash
+python -B -m unittest discover -s tests -p test_setup_helpers.py -v
+bash -n setup/common.sh setup/install_qwen.sh setup/install_harvester.sh setup/install_sam3.sh
+bash setup/install_environments.sh all --dry-run
+```

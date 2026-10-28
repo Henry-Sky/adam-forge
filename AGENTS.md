@@ -12,6 +12,12 @@
 
 Refer to `setup/README.md` for module Conda environments, prerequisites, installation commands, options, and validation steps. Verify referenced scripts exist before use; the root README includes references to removed tooling.
 
+## GPU Execution
+
+Run GPU tasks outside the Codex sandbox, including GPU diagnostics, CUDA validation, CUDA extension compilation, and model inference. Request escalated execution through the tool's approval mechanism when required. The sandbox can hide GPU device nodes; do not infer a driver or device failure from sandboxed `nvidia-smi` or CUDA checks. Verify outside the sandbox before diagnosing GPU access problems.
+
+Prefer 64 CPU threads and all 8 GPUs when the workload and program support parallel execution. Check available resources and configure the program's supported thread and multi-GPU options explicitly. For single-image or other workloads without multi-GPU support, use a suitable GPU and explain the limitation; do not launch duplicate jobs merely to occupy all devices.
+
 ## Documentation References
 
 Keep `AGENTS.md` focused on contributor rules. Reference the corresponding directory README for setup procedures, environment versions, commands, symlink inventories, and external sources; do not copy those details here. Update the owning README when such details change.

@@ -55,12 +55,26 @@ conda_install() {
     local mirror
     for mirror in "${CONDA_MIRRORS[@]}"; do
         if ! reachable "$mirror/noarch/repodata.json"; then continue; fi
-        if run conda "$action" -y -n "$ENV_NAME" --override-channels -c "$mirror" "$@"; then return 0; fi
+        if run conda_command "$action" -y -n "$ENV_NAME" --override-channels -c "$mirror" "$@"; then return 0; fi
         warn "Conda install failed via $mirror; trying next source"
     done
     warn "Both domestic Conda sources failed; falling back to official conda-forge: $*"
     reachable https://conda.anaconda.org/conda-forge/noarch/repodata.json || fail 'Official Conda source is unreachable'
-    run conda "$action" -y -n "$ENV_NAME" --override-channels -c https://conda.anaconda.org/conda-forge "$@" || fail 'Both Conda sources failed'
+    run conda_command "$action" -y -n "$ENV_NAME" --override-channels -c https://conda.anaconda.org/conda-forge "$@" || fail 'Both Conda sources failed'
+}
+
+# Conda can reactivate an environment after installation. Vendor activation
+# hooks are not necessarily compatible with Bash nounset.
+conda_command() {
+    local status=0
+    set +u
+    conda "$@" || status=$?
+    set -u
+    return "$status"
+}
+
+fix_decord_metadata() {
+    run python "$SETUP_DIR/fix_decord_metadata.py"
 }
 
 # Disable inherited pip indexes/configuration so each attempt uses its declared sources.
