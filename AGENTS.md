@@ -30,6 +30,10 @@ Prefer 64 CPU threads and all 8 GPUs when the workload and program support paral
 
 Keep `AGENTS.md` focused on contributor rules. Reference the corresponding directory README for setup procedures, environment versions, commands, symlink inventories, and external sources; do not copy those details here. Update the owning README when such details change.
 
+## Project Skills
+
+When creating or updating a skill for this project, synchronize the complete skill directory, including references, scripts, assets, and metadata, into `skills/<skill-name>/` as well as the local discoverable skill directory. Merge existing differences before overwriting either copy. Validate both copies and verify their contents match. Document synchronization and validation commands in `skills/README.md`; keep workflow details in the owning skill rather than in `AGENTS.md`.
+
 ## Data and Checkpoint Symlinks
 
 Refer to `data/README.md` and `checkpoint/README.md` for recorded symlinks and their external sources. Use repository-relative paths and verify targets exist before use. Links and target contents are ignored by Git. Update the corresponding README when authorized link changes occur; do not replace existing links or add unrecorded links automatically.
