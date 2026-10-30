@@ -132,3 +132,91 @@ NPZ 的主要约定：
 python tools/align_soma_gaussians.py --help
 python -B -m unittest discover -s tests -p test_soma_gaussian_binding.py -v
 ```
+
+## Waymo 人物重建场景筛选与预览
+
+`preview_waymo_people.py` 只读扫描 `metadata.csv` 指定编号范围内的 TFRecord，检查五路相机的原生行人框，选择每个 clip 最好的同一人物轨迹并生成 5 张场景与人物裁剪拼接预览。依赖 Python 3.10+、Pillow 10.1+（当前系统 Python 已有）；不依赖 TensorFlow、Waymo SDK 或 GPU，不下载模型。只支持本地未压缩 TFRecord，按 protobuf 字段范围读取并跳过激光雷达载荷；检查记录边界，但不校验 TFRecord CRC。
+
+```bash
+python tools/preview_waymo_people.py \
+    --data-root data/waymo-data \
+    --start-id 0 --end-id 999 --workers 64 \
+    --output-dir outputs/waymo_person_previews_00000_00999
+```
+
+默认要求人物高至少 180px、宽至少 45px、高宽比 1.5–5、距画面边缘至少 12px，排除检测难度 LEVEL_2，以及被其他标注框覆盖超过 20% 的目标；同一相机同一人物的五张预览至少相隔 0.3 秒。可通过 `--min-height`、`--min-width`、`--max-overlap`、`--spacing-seconds` 调整。像素尺寸与框重叠仅用于候选排序，不能验证遮挡、人体完整性、运动模糊或重建质量。
+
+输出目录包含每个入选 clip 的 5 张 JPG 与 `metadata.json`，以及浏览页 `index.html`、排序清单 `ranking.csv`、完整扫描清单 `scan.jsonl`、参数和错误统计 `summary.json`。帧号从 0 开始，元数据保留源 TFRecord、相机、人物 ID、时间戳和原图框坐标。扫描不完整会终止，不会伪报已检查全部 clip；完整扫描后的绘图中断可使用原参数加 `--render-only` 恢复。新扫描使用新目录，避免覆盖已有扫描结果。
+
+验证：`python tools/preview_waymo_people.py --help`；实际处理后检查 `summary.json` 的错误列表、扫描范围及每个入选子目录恰好 5 张图片，并抽查人物裁剪。
+
+## 人像退化对齐重建模型
+
+`process_masked_person.py` 将原始人像的细碎纹理、局部明暗和颜色观感作受控调整，便于与重建人物外观对照。使用 `adam-gem-x` 环境现有 NumPy、SciPy、OpenCV；可选视频使用该环境的 FFmpeg。安装见 [`setup/README.md`](../setup/README.md)，无需新增依赖、模型下载或GPU。
+
+流程始终为 **原始图像＋人物mask → 抠出前景 → 去噪 → flat → 提亮 → 饱和度 → 去灰 → 对比度 → 通道裁剪 → 同mask合成一次**。透明区域用最近前景颜色延拓，仅作滤波边界条件，不引入原背景或透明黑色。人物内部不做处理强度羽化，也不混回旧颜色。输入已有软alpha时仅最终合成一次，不将alpha预乘进处理颜色；它仍不能恢复源图边缘已混入的背景颜色。工具不生成mask，不做Gaussian取色或参数拟合。
+
+单图（请替换实际输入路径，输出目录必须不存在）：
+
+```bash
+conda activate adam-gem-x
+OMP_NUM_THREADS=64 MKL_NUM_THREADS=64 OPENBLAS_NUM_THREADS=64 \
+python tools/process_masked_person.py \
+    --image /path/to/original-person.png --mask /path/to/person-mask.png \
+    --output-dir outputs/person-appearance --save-stages
+```
+
+连续帧按文件名排序，支持PNG/JPG/JPEG，mask必须为同名stem的灰度PNG，如 `frames/0001.jpg` 对应 `masks/0001.png`。图像要求8-bit三通道，mask要求同尺寸8-bit灰度且非空，不能直接把彩色类别标注当作mask。
+
+```bash
+python tools/process_masked_person.py \
+    --images-dir /path/to/raw-frames --masks-dir /path/to/person-masks \
+    --output-dir outputs/person-sequence --save-stages --video --fps 10
+```
+
+也可使用清单，路径相对于显式 `--source-root`（默认当前工作目录）：
+
+```json
+{
+  "per_frame": [
+    {"source": "frames/frame0.jpg", "mask": "masks/frame0.png", "crop_box": [100, 50, 300, 450]}
+  ]
+}
+```
+
+```bash
+python tools/process_masked_person.py \
+    --manifest /path/to/frames.json --source-root /path/to/source-root \
+    --output-dir outputs/person-manifest --save-stages
+```
+
+`crop_box` 是可选整数xyxy，裁剪原图后与mask尺寸对应；不提供时处理整张图。清单未写 `mask` 时按 `--masks-dir/0000.png` 顺序查找，未指定该参数则查找清单旁 `input_masks/0000.png`，兼容已有人物帧清单的 `per_frame/source/crop_box` 字段。对大幅原图可先定义人物crop，以减少滤波工作量；flat空间尺度相对于处理图像高度。
+
+输出：`foreground/` 最终RGBA、`composite/` 单次贴回后的RGB、`metadata.json` 参数及逐帧来源；`--save-stages` 另保存 `stages/00_cutout` 至 `07_channel_clip` 的RGBA。清单有crop时，composite是裁剪图，不是完整源场景。工具不内置Gaussian对照渲染；需要九宫格时，将Origin与七个累加阶段按行排列，Gaussian只放右下角作为显示参考。
+
+`--video` 额外编码 `composite.mp4`，遵循 [`configs/README.md`](../configs/README.md)，默认10 FPS、H.264 High/4.0、yuv420p、无音轨，奇数宽高仅在右侧/底部补齐。要求全部帧尺寸一致，不会静默缩放变化的crop；此类输入先保留PNG或另作统一展示。FFmpeg按PATH、当前Python环境查找，可用 `--ffmpeg /path/to/ffmpeg` 指定。高分辨率任务需要的编码Level调整不属于当前CLI。
+
+参数通过 `--config appearance.json` 覆盖，下表也是默认值：
+
+| 配置键 | 默认值 | 含义 |
+| --- | --- | --- |
+| `denoise_h` | 14 | 彩色NLM，0关闭 |
+| `template_window`, `search_window` | 7, 21 | 正奇数，搜索窗不小于模板窗 |
+| `flat_sigma_color`, `flat_sigma_space_fraction`, `flat_mix` | 55, 0.025, 0.85 | 双边平滑，空间sigma至少3像素，mix=0关闭 |
+| `exposure_ev` | 0.15 | 线性RGB中间调曝光，亮部保护 |
+| `saturation` | 1.5 | HSV饱和度倍率 |
+| `degray` | 0.015 | 线性RGB中性灰底校正，深阴影保护 |
+| `contrast`, `contrast_pivot` | 1.15, 0.18 | 亮度S曲线斜率和支点 |
+| `contrast_gain_min`, `contrast_gain_max` | 0.75, 1.2 | RGB亮度增益限制 |
+| `black_point`, `white_point` | 24, 232 | 编码RGB通道黑白点，允许裁剪 |
+
+例如更弱的处理：`{"denoise_h": 8, "flat_mix": 0.5, "saturation": 1.25, "black_point": 12, "white_point": 244}`。所有帧使用同一参数配置，不按Gaussian颜色或逐帧直方图自动变化；不含光流时序滤波。这里的flat是保边平滑，不是真实材质/光照分解。强处理可能抹掉脸部、反光条、褶皱及高光；需要保护反光条时先检查其细节在去噪/flat阶段是否已经丢失，而非只提高后续对比度。参数固定不等于已验证跨场景鲁棒性。
+
+验证（全部样例只写临时目录）：
+
+```bash
+python tools/process_masked_person.py --help
+python -B -m unittest discover -s tests -p test_masked_person.py -v
+```
+
+测试覆盖背景变化不影响前景滤波、软alpha只合成一次、无效参数/mask拒绝、清单裁剪、RGBA alpha一致、输出不覆盖，以及30帧/10 FPS视频编码。原实验数据若不在当前机器，不将临时样例声称为原视频像素回归。

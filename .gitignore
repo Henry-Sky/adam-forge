@@ -25,5 +25,6 @@ venv/
 !/tests/test_setup_helpers.py
 !/tests/test_soma_gaussian_binding.py
 !/tests/test_gaussian_lbs.py
+!/tests/test_masked_person.py
 /web_server/src/static/.vendor/
 /web_server/output/

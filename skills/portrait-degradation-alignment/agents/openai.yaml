@@ -1,0 +1,3 @@
+interface:
+  display_name: "人像退化对齐重建模型"
+  short_description: "按人物mask先抠图，再去噪揉匀与统一调色，对照重建模型外观"
