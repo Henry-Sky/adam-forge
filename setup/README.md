@@ -25,6 +25,30 @@ bash setup/install_environments.sh gem_x soma_x
 按选择顺序串行安装，重复模块只执行一次；任一模块失败立即停止。
 未选择模块时显示用法并退出。
 
+### 安装到仓库 `.conda/`
+
+在仓库根目录设置以下变量后运行安装入口，环境将位于 `.conda/adam-<模块>`，包缓存位于 `.conda/pkgs`；该目录已被 Git 忽略。`--prefix` 仅修改环境名称，不是安装目录参数。
+
+```bash
+source /root/miniconda3/etc/profile.d/conda.sh  # 按实际 Miniconda 路径调整
+export CONDA_ENVS_PATH="$PWD/.conda"
+export CONDA_PKGS_DIRS="$PWD/.conda/pkgs"
+export ADAM_CONDA_MIRROR=https://mirrors.nju.edu.cn/anaconda/cloud/conda-forge
+export ADAM_CONDA_MIRROR_2=https://mirrors.sustech.edu.cn/anaconda/cloud/conda-forge
+export ADAM_PIP_MIRROR=https://mirrors.aliyun.com/pypi/simple
+export ADAM_PIP_MIRROR_2=https://repo.huaweicloud.com/repository/pypi/simple
+export NO_PROXY="${NO_PROXY:-},mirrors.nju.edu.cn,mirrors.sustech.edu.cn,mirrors.aliyun.com,repo.huaweicloud.com"
+export no_proxy="$NO_PROXY"
+export OMP_NUM_THREADS=64 MKL_NUM_THREADS=64 OPENBLAS_NUM_THREADS=64
+export MAX_JOBS=64 CMAKE_BUILD_PARALLEL_LEVEL=64
+# 仅准备源码，避免下载 SOMA-X 等子模块的 LFS 资产
+GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive --jobs 8
+bash setup/install_environments.sh all
+conda activate "$PWD/.conda/adam-web"
+```
+
+以上镜像也是安装脚本的默认国内源，后续安装或修复时可用同名变量覆盖。对可直连的国内镜像，为安装命令设置 `NO_PROXY` / `no_proxy` 绕过代理；不要修改全局代理配置。Harvester 在 A800 上可另外设置 `TORCH_CUDA_ARCH_LIST=8.0`，只编译当前设备架构；更换 GPU 时应按目标设备调整或取消该变量。安装检查不需要多 GPU 推理。
+
 | 脚本 | 默认环境名 | Python |
 | --- | --- | --- |
 | `install_qwen.sh` | `adam-qwen` | 3.12 |
@@ -83,8 +107,8 @@ Harvester 额外验证 gsplat CUDA 扩展。不会加载或下载模型权重，
 
 | 类别 | 国内源 1 | 国内源 2 | 官方回退 |
 | --- | --- | --- | --- |
-| Conda | 清华 conda-forge | 北外 conda-forge | conda.anaconda.org/conda-forge |
-| PyPI | 清华 PyPI | 阿里云 PyPI | pypi.org |
+| Conda | 南京大学 conda-forge | 南科大 conda-forge | conda.anaconda.org/conda-forge |
+| PyPI | 阿里云 PyPI | 华为云 PyPI | pypi.org |
 | PyTorch cu128 | 南京大学 | 阿里云 | download.pytorch.org |
 
 每次尝试前使用 curl HEAD 检查对应索引的连通性（连接超时 5 秒，总超时 15 秒）。
@@ -98,6 +122,7 @@ PyTorch 安装同时尝试两个国内 PyPI 源来解析其依赖。
 - `ADAM_CONDA_MIRROR`、`ADAM_CONDA_MIRROR_2`：完整 conda-forge channel URL。
 - `ADAM_PIP_MIRROR`、`ADAM_PIP_MIRROR_2`：完整 PyPI simple URL，不带末尾 `/`。
 - `ADAM_TORCH_MIRROR`、`ADAM_TORCH_MIRROR_2`：完整 PyTorch cu128 索引 URL，不带末尾 `/`。
+- `ADAM_PIP_WHEELHOUSE`：可选本地 wheel 缓存目录，作为 `pip --find-links` 的附加来源；依赖和固定版本约束仍照常校验，缺失的包继续从所选镜像获取。
 
 Qwen 使用发布版 `diffusers==0.37.0`（支持 2511 权重的 `zero_cond_t` 配置），并将 Transformers 限制在 4.x，避免依赖 Git 克隆及未经验证的大版本升级。安装检查同时确认该参数存在；仅能导入编辑管线不足以验证 2511 兼容性。
 固定提交的 gsplat 从官方 GitHub 拉取源码；脚本会明确警告，

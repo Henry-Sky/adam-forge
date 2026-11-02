@@ -7,10 +7,10 @@ PROJECT_DIR="$(cd -- "$SETUP_DIR/.." && pwd)"
 PREFIX=adam
 DRY_RUN=0
 REUSE=0
-PIP_MIRROR="${ADAM_PIP_MIRROR:-https://pypi.tuna.tsinghua.edu.cn/simple}"
-PIP_MIRRORS=("$PIP_MIRROR" "${ADAM_PIP_MIRROR_2:-https://mirrors.aliyun.com/pypi/simple}")
+PIP_MIRROR="${ADAM_PIP_MIRROR:-https://mirrors.aliyun.com/pypi/simple}"
+PIP_MIRRORS=("$PIP_MIRROR" "${ADAM_PIP_MIRROR_2:-https://repo.huaweicloud.com/repository/pypi/simple}")
 TORCH_MIRRORS=("${ADAM_TORCH_MIRROR:-https://mirrors.nju.edu.cn/pytorch/whl/cu128}" "${ADAM_TORCH_MIRROR_2:-https://mirrors.aliyun.com/pytorch-wheels/cu128}")
-CONDA_MIRRORS=("${ADAM_CONDA_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge}" "${ADAM_CONDA_MIRROR_2:-https://mirrors.bfsu.edu.cn/anaconda/cloud/conda-forge}")
+CONDA_MIRRORS=("${ADAM_CONDA_MIRROR:-https://mirrors.nju.edu.cn/anaconda/cloud/conda-forge}" "${ADAM_CONDA_MIRROR_2:-https://mirrors.sustech.edu.cn/anaconda/cloud/conda-forge}")
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
@@ -80,9 +80,14 @@ fix_decord_metadata() {
 # Disable inherited pip indexes/configuration so each attempt uses its declared sources.
 pip_at() {
     local index="$1"; shift
+    local wheelhouse_args=()
+    if [[ -n "${ADAM_PIP_WHEELHOUSE:-}" ]]; then
+        [[ -d "$ADAM_PIP_WHEELHOUSE" ]] || fail "Missing wheel cache: $ADAM_PIP_WHEELHOUSE"
+        wheelhouse_args=(--find-links "$ADAM_PIP_WHEELHOUSE")
+    fi
     run env -u PIP_EXTRA_INDEX_URL -u PIP_NO_INDEX -u PIP_FIND_LINKS \
         PIP_CONFIG_FILE=/dev/null PIP_INDEX_URL="$index" \
-        python -m pip --disable-pip-version-check --timeout 30 --retries 1 install "$@"
+        python -m pip --disable-pip-version-check --timeout 30 --retries 1 install "${wheelhouse_args[@]}" "$@"
 }
 pip_install() {
     local mirror

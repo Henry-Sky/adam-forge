@@ -7,6 +7,7 @@ __pycache__/
 
 # Local environments and editor state
 .venv/
+.conda/
 venv/
 .idea/
 .vscode/

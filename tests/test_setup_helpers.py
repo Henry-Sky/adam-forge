@@ -16,6 +16,32 @@ SPEC.loader.exec_module(FIX)
 
 
 class SetupHelpersTest(unittest.TestCase):
+    def test_local_wheels_preserve_selected_index_and_ignore_inherited_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wheels = root / "wheel cache"
+            wheels.mkdir()
+            python = root / "python"
+            python.write_text(
+                '#!/bin/bash\n'
+                '[[ -z "${PIP_FIND_LINKS+x}" && -z "${PIP_EXTRA_INDEX_URL+x}" ]] || exit 9\n'
+                'printf "index=%s\\n" "$PIP_INDEX_URL"\n'
+                'printf "arg=%s\\n" "$@"\n'
+            )
+            python.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-c", '''source setup/common.sh
+export PATH="$1:$PATH" ADAM_PIP_WHEELHOUSE="$2"
+export PIP_FIND_LINKS=https://unwanted.invalid PIP_EXTRA_INDEX_URL=https://unwanted.invalid
+pip_at https://selected.invalid/simple example-package
+''', "test", str(root), str(wheels)],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("index=https://selected.invalid/simple\n", result.stdout)
+            self.assertIn(f"arg=--find-links\narg={wheels}\n", result.stdout)
+            self.assertIn("arg=example-package\n", result.stdout)
+
     def test_decord_tag_and_record_are_consistent_and_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
