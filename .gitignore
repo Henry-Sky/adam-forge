@@ -33,3 +33,4 @@ venv/
 /web_server/output/
 
 !/tests/test_person_degradation.py
+!/tests/test_person_masks.py

@@ -1,5 +1,58 @@
 # 独立工具
 
+## SAM3 按人物 ID 批量生成 mask
+
+`build_person_masks.py` 使用现有 `adam-sam3` 环境与本地 `checkpoint/sam3/sam3.pt`，无新增依赖或下载。当前为 `sam3-jpeg-sequence-temporal-v2`：按帧序读取每对 `scene_rgb/*.jpg`，按已有 placement 放入固定尺寸人物 crop 画布，将全部 PIL 图像作为视频序列传入 `build_sam3_video_model`。不读取 MP4，不重新编码 JPEG，保留源 JPEG 解码后的像素；模型内部执行其标准缩放。**不是逐帧独立分割**，非锚点帧通过 SAM3 视频 tracker 的时序记忆传播。
+
+程序先核对 manifest 与 placement 的人物 ID、帧号、逐帧框和图像路径。首、中、末帧的对应 ID 框转换为视频画布归一化的框角点（SAM 标签 2、3），为同一个 `obj_id` 添加三个条件锚点；随后从首帧向末帧传播全部帧。29 帧序列的锚点是 0、14、28。现有画布跟随人物 crop 移动，不等同于固定场景相机运动；身份由已有标注约束，遮挡与标注偏差仍可能影响质量。
+
+```bash
+# CPU 预检，不加载模型、不写入数据。
+.conda/adam-sam3/bin/python -B tools/build_person_masks.py \
+    --preflight-only --progress-dir outputs/sam3-mask-preflight
+
+# 在沙箱外执行 GPU；用户已授权以新结果覆盖旧 mask。
+bash tools/start_person_mask_task.sh --overwrite
+```
+
+默认 GPU 0–3、共 64 个计算线程，每卡一个持久模型进程、16 个 PyTorch/BLAS 线程；OpenCV 和 interop 各限制为 1。控制进程和 CUDA 辅助线程不计入 64 个计算线程。可通过 `--gpus`、`--threads`、`--train-root`、`--checkpoint` 覆盖默认参数；`--limit 1 --gpus 0 --threads 16` 用于单对验证。
+
+启动器使用 `setsid -f nohup`，标准输入来自 `/dev/null`，stdout/stderr 写入任务日志；进程有独立会话且忽略 SIGHUP，退出终端或 Codex 不终止任务。主机重启或容器停止后需重新启动。
+
+输出覆盖各对已有 `sam3_mask/`，不改动源 JPEG、manifest、既有 crop 或视频：
+
+- `scene/000.png` 等：与原场景同尺寸，前景 255、背景 0。
+- `crop/000.png` 等：与人物视频画布同尺寸、同偏移与补黑，补黑处强制为 0。
+- `metadata.json`：算法版本、人物 ID、时序传播方式、锚点帧、提示框、来源和坐标。逐帧记录 `tracker_score_raw`，不将 tracker 分数称为预测 IoU。空 mask、目标 ID 缺失或超过一半前景位于对应 ID 框外会标记人工复查，不丢帧。
+
+整对写入唯一临时目录，帧数及尺寸检查通过后发布。`--overwrite` 允许用完整新结果替换旧目录；支持时使用 Linux 原子目录交换，不支持时先将旧目录临时改名，再发布完整新目录，发布异常会恢复旧目录。此回退方式有很短的路径切换间隔，硬中断可能留下 `.sam3_mask-replaced-*`。替换成功后删除旧 mask，不保留两套结果。程序遇到单对异常会记录并继续，失败临时目录保留供诊断；源数据不删除。
+
+签名包含算法版本、manifest/placement 内容、源 JPEG 大小和修改时间以及权重路径/大小/修改时间。重跑会跳过同签名且输出齐全的新版结果；旧版逐帧结果签名不同，会在 `--overwrite` 下重做。数据根目录 `.sam3-mask.lock` 防止两批并发写入。
+
+本次视频后台任务位于 `outputs/sam3-video-mask-task-20261102T074606Z/`；旧逐帧任务已停止，旧日志仅保留历史。监控：
+
+本次任务于 2026-11-02 08:26:38 UTC 完成：824 对、23,896 帧，0 失败，四个进程退出码均为 0，耗时约 40 分钟；其中首对已在视频模式验证中完成，批处理跳过该对。1,349 帧带复查标记，需人工判断，不等同于分割错误。
+
+```bash
+cat outputs/sam3-video-mask-task-20261102T074606Z/progress.json
+tail -n 30 outputs/sam3-video-mask-task-20261102T074606Z/task.log
+cat outputs/sam3-video-mask-task-20261102T074606Z/run.json
+```
+
+`run.json` 记录 PID、会话和最终状态，`gpu-*.json` 记录各卡当前训练对、成功/跳过/失败/复查计数，`gpu-*.jsonl` 记录逐对耗时和异常。停止时向 `task.pid` 中的主进程发送 SIGTERM，主进程会终止并回收四个子进程。恢复时重跑上述启动命令。
+
+验证：
+
+```bash
+bash -n tools/start_person_mask_task.sh
+OPENBLAS_NUM_THREADS=1 .conda/adam-sam3/bin/python -B -m unittest discover -s tests -p test_person_masks.py -v
+# 在沙箱外进行实际视频推理和覆盖验证：
+.conda/adam-sam3/bin/python -B tools/build_person_masks.py \
+    --limit 1 --gpus 0 --threads 16 --overwrite --progress-dir outputs/sam3-video-mask-smoke-verified
+```
+
+测试仅写临时目录，覆盖原 JPEG crop 的像素与框映射、ID 错配拒绝、覆盖保护、完整替换及文件系统不支持交换时的回退与失败恢复。实际首对 29 帧已验证二值像素、原生尺寸、身份和 crop/scene 的逐像素对应，5 帧叠加预览见 `outputs/sam3-video-mask-smoke-verified/preview.jpg`。
+
 ## 安装辅助工具
 
 以下工具只依赖 Python 标准库，无命令行参数，通常由 `setup/` 的 Bash 安装脚本自动调用。
