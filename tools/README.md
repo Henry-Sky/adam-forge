@@ -220,3 +220,132 @@ python -B -m unittest discover -s tests -p test_masked_person.py -v
 ```
 
 测试覆盖背景变化不影响前景滤波、软alpha只合成一次、无效参数/mask拒绝、清单裁剪、RGBA alpha一致、输出不覆盖，以及30帧/10 FPS视频编码。原实验数据若不在当前机器，不将临时样例声称为原视频像素回归。
+
+## 人物投影 crop 与场景视频（可脱离 Codex 运行）
+
+`build_person_videos.py` 在已有 `data/adam-data/train-data/<clip_id>_<obj_id>/` 内生成：
+
+- `scene_rgb.mp4`：按 `scene_rgb/000.jpg` 等原始顺序编码的完整场景。
+- `person_crop/person.mp4`：对应人物的固定画布视频，保留原生像素尺寸，逐帧居中补黑边，不缩放人物。
+- `person_crop/placement.json`：逐帧源图路径、源视频帧号、纳秒时间戳、原图裁剪框 `paste_xyxy`、视频有效区域 `crop_in_video_xyxy`、正反向二维仿射矩阵、3D 框、3D 投影框及同 ID 的 2D 标注框。
+- `person_crop/source_manifest.json`：更新前的训练对清单备份；原 `manifest.json` 的 `files` 增补视频和位置记录路径。
+
+依赖使用现有 `adam-gem-x` 环境中的 NumPy、Pillow、FFmpeg；贴回工具另外使用该环境已有的 OpenCV。视频编码遵循 [`configs/README.md`](../configs/README.md)，场景 CRF 18、crop CRF 12。H.264 是有损编码；位置映射保持整数像素几何，不保证编码后的 RGB 数值与原图完全相同。
+
+投影按对象 ID 和原始帧号匹配可信本地 PKL，使用相机外参、内参及有理径向/切向畸变，并采样 3D 框边缘、裁切相机近平面。通过同 ID、同相机的直接 2D 标注核对原始标注与场景图的分辨率比例，不能确认时记录失败而非猜测。由于部分 3D/2D 标注存在偏移，最终 crop 采用两者包围框并集，四边各留 5% 余量后裁至图像边界。框为左闭右开 `[x0,y0,x1,y1]`，数组索引为 `[y0:y1,x0:x1]`。
+
+**此工具会向数据软链接指向的现有训练对写入派生结果，运行前应已获得修改该训练数据目录的授权。** 原始 JPG、源视频和 PKL 保留。每个视频编码后实际解码计数并检查尺寸、帧率及格式，再发布文件；已有完整输出经输入签名和视频检查后跳过，不同输入的已存在 crop 会报错。
+
+在仓库根目录启动独立后台进程：
+
+```bash
+bash tools/start_person_video_task.sh
+cat outputs/train-crop-task/task.pid
+cat outputs/train-crop-task/progress.json
+tail -f outputs/train-crop-task/task.log
+```
+
+启动器使用 `setsid -f nohup`，标准输入断开，日志落盘，运行不依赖 Codex 进程或交互终端。退出 Codex、关闭终端后继续；机器/容器关闭时不保证运行。默认 16 个处理进程，每个 FFmpeg 编码器 3 线程，加上单线程图像处理约使用 64 CPU 线程；使用软件 H.264 编码，不进行 GPU 推理。可通过 `ADAM_VIDEO_PYTHON` 指定其他已安装依赖的 Python。
+
+`progress.json` 包含 `running` / `completed` / `completed_with_errors` / `failed`、总数、完成/复用/失败数、帧数、PID 和运行 ID；`results.jsonl` 按运行 ID 记录每个训练对的结果及错误。进度按源 clip 完成批次刷新。任务使用文件锁避免同一进度目录被多个批处理同时占用。中断后再次运行启动命令即可检查并复用完成结果、重做未完成项；机器重启后需重新运行启动命令。
+
+直接前台运行或仅检查少量训练对：
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+.conda/adam-gem-x/bin/python tools/build_person_videos.py \
+  --train-root data/adam-data/train-data --source-root data/adam-data/source-data \
+  --workers 16 --encoder-threads 3 --progress-dir outputs/train-crop-task
+
+# 重复 --pair-id 可选择多个样本；--padding 修改框边余量
+.conda/adam-gem-x/bin/python tools/build_person_videos.py \
+  --pair-id 00000_00005 --workers 1 --progress-dir outputs/train-crop-smoke
+```
+
+修改后的视频须保持画布尺寸、帧数、帧序及 10 FPS；贴回时忽略补黑区域，优先使用原 JPG 作背景，缺失时读取 `scene_rgb.mp4`。以下操作按矩形区域贴回，不做人物分割或边缘融合：
+
+```bash
+.conda/adam-gem-x/bin/python tools/paste_person_video.py \
+  --pair-dir data/adam-data/train-data/00000_00005 \
+  --edited-video /path/to/edited-person.mp4 \
+  --output outputs/person-edited-scene.mp4
+
+OPENBLAS_NUM_THREADS=1 .conda/adam-gem-x/bin/python -B -m unittest discover -s tests -p test_person_video.py -v
+bash -n tools/start_person_video_task.sh
+```
+
+## SAM3 前的人物 crop 异常候选审查
+
+`audit_person_crops.py` 使用 `adam-gem-x` 环境，对现有训练对执行只读质检，输出带 clip ID、obj ID 的独立审查目录。工具不调用 SAM3，不修改或删除数据。报告目录必须不存在，避免覆盖人工审查结果。
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+.conda/adam-gem-x/bin/python tools/audit_person_crops.py \
+  --train-root data/adam-data/train-data --source-root data/adam-data/source-data \
+  --output tests/crop_review_20261102 --workers 64 --controls 24
+
+# 少量样本检查；输出改用新的空目录
+.conda/adam-gem-x/bin/python tools/audit_person_crops.py \
+  --pair-id 00000_00005 --pair-id 00017_00066 \
+  --output outputs/crop-audit/smoke-new --workers 2 --controls 1
+
+OPENBLAS_NUM_THREADS=1 .conda/adam-gem-x/bin/python -B -m unittest discover -s tests -p test_crop_audit.py -v
+```
+
+检查范围包括两个视频的实际解码帧数、尺寸、编码及 10 FPS，人物 ID、帧序与源 PKL 时间戳、正反向位置映射、3D/2D 框偏移、原生人物像素量、背景/补黑占比、跨帧位置和尺度突变、同相机同帧其他人物、低细节及首/中/末帧与源 JPG 区域的一致性。全部使用 CPU，OpenCV、FFprobe 和 BLAS 均限定单线程，默认并行 64 个源 clip。
+
+建议分为三类，均不自动应用到数据集：
+
+- `exclude`：建议剔除。完整性检查异常，或至少一半帧的可见目标高度小于 24 像素/宽度小于 8 像素。
+- `review`：需人工复核。包括目标偏小（至少 25% 帧高度小于 48 像素/宽度小于 16 像素）、投影偏移、定位跳变、背景过多、多个竞争人物等；这些情况未必不能使用 SAM3。
+- `keep`：暂未命中本次规则，不等同于人工确认合格。默认抽取 24 个确定性对照样本供复查。
+
+小目标阈值是本次数据筛选建议，不是 SAM3 官方输入限制。`--thresholds /path/to/thresholds.json` 可覆盖 `utils/crop_audit.py` 中的已知阈值键，最终参数完整写入报告。原始遮挡/截断字段全为 0，真实遮挡和未标注人物仍需人工检查；颜色框仅为标注引导，不保证语义上始终正确。
+
+输出：
+
+- `index.html`：离线分页审查页，可按 clip/obj ID 或原因搜索，选择保留/剔除并导出人工决定 JSON；当前浏览器的选择保存在本地存储，提交审查时应导出 JSON。
+- `exclude/<clip_id>_<obj_id>/`、`review/<clip_id>_<obj_id>/`：六个代表/风险帧的 `preview.jpg`、带 ID 的原 crop MP4 副本、指标与原因 `review.json`。预览分别展示干净 crop、叠加焦点框的 crop 和原场景上下文。
+- `control/`：未命中规则的对照预览。
+- `exclude_candidates.csv`、`review_candidates.csv`、`remaining_candidates.csv`、`all_candidates.csv`：分组和全量清单。
+- `all_results.json`：完整指标、异常原因和逐帧 `focus_boxes_in_crop_xyxy`，可为后续 SAM3 提供按 ID 对齐的框提示，但应先通过本次人工审查。
+- `summary.json`、`progress.json`、`README.md`：计数、可重叠的原因统计、阈值、处理进度和审查说明。
+
+生成的 `tests/crop_review_*/` 按现有规则忽略，不纳入 Git；只有相应单元测试源文件显式跟踪。报告和媒体全部在独立目录内，完整目录可拷贝后离线打开 `index.html`。
+
+## 人物配对退化：ISP 与二维光照
+
+入口 `tools/degrade_person.py`，参数算法在 `utils/person_degradation.py`。使用 `adam-gem-x`，安装和依赖见 `setup/README.md`。默认参数统一维护在 [`configs/person_degradation.yaml`](../configs/person_degradation.yaml)，使用 PyYAML safe_load 读取并检查未知字段、范围和模式权重。CPU 默认64线程；脚本无需GPU或Gaussian。必须提供原始人物帧及已有Mask，脚本不执行分割。
+
+```bash
+conda activate adam-gem-x
+python tools/degrade_person.py \
+    --images-dir /path/to/original-frames --masks-dir /path/to/masks \
+    --sample-id clip00001_obj00002 --config configs/person_degradation.yaml \
+    --output-dir outputs/person-degradation --save-stages --video
+```
+
+单图使用 `--image /path/to/image.png --mask /path/to/mask.png`；JSON清单使用 `--manifest /path/to/frames.json --source-root /path/to/root`。清单格式为 `{"pair_id":"00001_00002","per_frame":[{"source":"frame.png","mask":"mask.png","frame_id":0,"crop_box":[0,0,100,200]}]}`；`crop_box` 可省略，Mask尺寸须对应裁剪后的图像。保留每条记录的时间戳、贴回矩阵、位置等额外字段。清单中缺省Mask时，采用 `--masks-dir/0000.png`，未设置该参数则采用清单旁 `input_masks/0000.png`。单次调用处理一个人物片段；目录模式按文件名排序，必须用连续且补零的帧名。`--sample-id` 应显式指定稳定的clip/person标识；缺省采用清单pair_id、图像stem或输入目录名，重复名称会使用相同随机流。
+
+YAML `variants` 控制每片段输出变体数，`modes` 权重决定细节、ISP、二维光照的组合；`--mode isp` / `relighting` / `isp_relighting` / `detail` / `detail_isp_relighting` / `legacy` 可固定分支。每个变体从seed、sample-id、变体编号派生随机流，模式和各分支分别采样；同一人物同一变体不同模式共享对应分支参数，便于公平比较。detail仅运行NLM去噪和flat，默认h=6、flat_mix=0.3；独立ISP/光照不默认运行detail。完整历史处理由 `process_masked_person.py` 实现，新工具通过独立legacy模式复用，默认权重0，禁止与其它分支组合。
+
+处理顺序：原图Mask前景提取 → 可选二维光照 → 可选ISP → 可选温和detail → 原Mask单次合成。detail不再执行曝光、饱和度、去灰、对比度或通道裁剪；在光照与调色后重新进行前景边界延拓再滤波。光照场绑定人物Mask外接框的归一化坐标，按YAML进行因果平滑；参数在片段内固定，不包含逐帧随机或动态光照轨迹。ISP支持线性曝光、亮度归一化的白平衡增益、线性亮度饱和度、支点幂函数对比度、gamma幂曲线和可选编码RGB通道裁剪；与旧脚本的亮部保护曝光和S曲线不同。
+
+输出目录必须不存在。每个 `variant_000/` 保存：
+
+- `input/`：退化合成PNG；`target/`：未处理的原图或同坐标crop PNG；`mask/`：原Mask PNG；`foreground/`：处理后RGBA。
+- `pairs.json`：模式、实际采样参数、种子、逐帧原始文件哈希、输入输出路径、源帧信息、裁剪坐标、光照使用的人物框。目录上层 `config.yaml` 为配置快照，`metadata.json` 记录版本、身份和完成状态。
+- `--save-stages` 保存实际运行的中间RGBA；`--video` 同时生成input.mp4和target.mp4，遵循 `configs/README.md`，`--fps`默认10。只接受等尺寸序列，不静默缩放；PNG是无损训练对，MP4只作预览。`--ffmpeg`可指定编码器。
+
+GT始终来自未处理原图。透明区使用最近前景颜色延拓，二值Mask外合成PNG与GT一致，软alpha最终只合成一次。二维光照仅叠加空间亮度/光色，不移除原光照、不恢复材质、不生成地面阴影。不同模式可能出现近似无变化的随机结果，当前不自动拒绝或重采样；参数范围尚需真实样本视觉调优。固定参数不保证SAM Mask或逐帧滤波时序稳定。划分训练/验证集时先按源clip分组，再生成退化变体。
+
+验证：
+
+```bash
+python tools/degrade_person.py --help
+python -B -m unittest discover -s tests -p test_person_degradation.py -v
+```
+
+测试只写临时目录，覆盖全部模式真实CLI输出、原图GT与Mask保留、背景不变、软alpha单次合成、位置记录、输出不覆盖、可复现采样及非法配置拒绝。
+
+配置版本2明确区分detail与legacy；版本1配置会拒绝加载，避免把旧调色链静默解释为温和detail。`metadata.json`输出格式为`person_degradation_pairs_v2`，`pairs.json.processing_order`记录实际运行的分支。历史JSON入口保持原行为。

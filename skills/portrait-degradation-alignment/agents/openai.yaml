@@ -1,3 +1,3 @@
 interface:
-  display_name: "人像退化对齐重建模型"
-  short_description: "按人物mask先抠图，再去噪揉匀与统一调色，对照重建模型外观"
+  display_name: "人物前景退化配对数据"
+  short_description: "使用人物Mask构建细节、ISP与二维光照退化Input及原图GT，记录参数并生成对比"

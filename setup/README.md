@@ -148,3 +148,5 @@ bash -n setup/common.sh setup/install_qwen.sh setup/install_harvester.sh setup/i
 bash -n setup/install_gem_x.sh setup/install_soma_x.sh setup/install_web.sh setup/install_environments.sh
 bash setup/install_environments.sh all --dry-run
 ```
+
+人物配对退化脚本 `tools/degrade_person.py` 使用 `adam-gem-x` 环境的 NumPy、SciPy、OpenCV 和 `PyYAML>=6,<7`；GEM-X 安装脚本显式安装并检查 YAML 依赖。该脚本不需要 GPU 或模型权重；已有 Mask 为必需输入。配置见 `configs/person_degradation.yaml`，使用方法见 `tools/README.md`。

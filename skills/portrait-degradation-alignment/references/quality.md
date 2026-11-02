@@ -34,3 +34,9 @@
 `tools/process_masked_person.py` 接受单图、同stem目录配对或JSON清单，已有mask必需；不生成SAM3 mask、不渲染Gaussian、不自动生成九宫格。需要展示时另作对照装配，参考图只在显示阶段读取。
 
 清单含crop时工具输出crop合成图，不是完整场景。变尺寸crop不能直接启用工具的 `--video`；先保留PNG，在展示阶段统一画布尺寸并保留原比例。输出目录必须不存在。全部具体命令、配置键和测试命令维护在仓库 `tools/README.md`，避免本参考重复另一套实现。
+
+## 配对退化入口
+
+`tools/degrade_person.py` 复用历史前景边界处理，按YAML依次运行可选二维光照、ISP和末尾温和detail，输出Input、未处理GT及原Mask。新增ISP使用亮度归一化通道增益、线性饱和度、支点幂函数对比度和gamma幂曲线，与历史入口的曲线不同。二维光照不去除原光照；平滑Mask框只能稳定空间场，不能修正分割闪烁或跟随肢体形变。GT和Mask以PNG保存，MP4只作预览。
+
+新版detail仅NLM去噪和双边flat，无曝光、去灰、饱和度、对比度或通道裁剪。legacy保留旧完整链，独立运行且默认不参与随机采样，避免与ISP重复调色。组合退化必须先光照、再ISP、最后detail，阶段顺序记录在pairs.json中。

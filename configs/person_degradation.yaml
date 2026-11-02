@@ -1,0 +1,125 @@
+# Version 2: relighting -> ISP -> mild detail. Legacy is standalone, weight 0.
+version: 2
+seed: 20261102
+variants: 1
+modes:
+- name: isp
+  weight: 3
+  detail: false
+  isp: true
+  relighting: false
+  legacy: false
+- name: relighting
+  weight: 3
+  detail: false
+  isp: false
+  relighting: true
+  legacy: false
+- name: isp_relighting
+  weight: 2
+  detail: false
+  isp: true
+  relighting: true
+  legacy: false
+- name: detail
+  weight: 1
+  detail: true
+  isp: false
+  relighting: false
+  legacy: false
+- name: detail_isp_relighting
+  weight: 1
+  detail: true
+  isp: true
+  relighting: true
+  legacy: false
+- name: legacy
+  weight: 0
+  detail: false
+  isp: false
+  relighting: false
+  legacy: true
+detail:
+  denoise_h: 6.0
+  template_window: 7
+  search_window: 21
+  flat_sigma_color: 55.0
+  flat_sigma_space_fraction: 0.025
+  flat_mix: 0.3
+isp:
+  exposure_ev:
+  - -1.0
+  - 1.0
+  wb_red_ev:
+  - -0.25
+  - 0.25
+  wb_green_ev:
+  - -0.12
+  - 0.12
+  wb_blue_ev:
+  - -0.25
+  - 0.25
+  saturation:
+  - 0.6
+  - 1.5
+  contrast:
+  - 0.8
+  - 1.2
+  contrast_pivot: 0.18
+  gamma:
+  - 0.85
+  - 1.15
+  channel_clip_probability: 0.15
+  black_point:
+  - 0.0
+  - 12.0
+  white_point:
+  - 240.0
+  - 255.0
+relighting:
+  ambient_ev:
+  - -0.15
+  - 0.15
+  direction_deg:
+  - 0.0
+  - 360.0
+  directional_ev:
+  - -0.65
+  - 0.65
+  spot_ev:
+  - -0.5
+  - 0.5
+  center_x:
+  - 0.2
+  - 0.8
+  center_y:
+  - 0.2
+  - 0.8
+  sigma:
+  - 0.25
+  - 0.65
+  light_red_ev:
+  - -0.1
+  - 0.1
+  light_blue_ev:
+  - -0.1
+  - 0.1
+  min_gain: 0.4
+  max_gain: 2.5
+  bbox_smoothing: 0.7
+legacy:
+  denoise_h: 14.0
+  template_window: 7
+  search_window: 21
+  flat_sigma_color: 55.0
+  flat_sigma_space_fraction: 0.025
+  flat_mix: 0.85
+  exposure_ev: 0.15
+  saturation: 1.5
+  degray: 0.015
+  contrast: 1.15
+  contrast_pivot: 0.18
+  contrast_gain_min: 0.75
+  contrast_gain_max: 1.2
+  black_point: 24.0
+  white_point: 232.0

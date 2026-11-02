@@ -4,7 +4,7 @@
 
 - [`gaussian-character-motion`](gaussian-character-motion/SKILL.md)：场景与人物筛选、Qwen A-pose、Harvester Gaussian 重建、GEM-X/SOMA、网页人工配准、权重转移、LBS 人工确认和源动作恢复。
 
-- [`portrait-degradation-alignment`](portrait-degradation-alignment/SKILL.md)：**人像退化对齐重建模型**，严格先mask抠图，再去噪、flat、曝光/颜色/对比度处理，最后单次贴回；重建模型仅作显示对照。
+- [`portrait-degradation-alignment`](portrait-degradation-alignment/SKILL.md)：**人物前景退化配对数据**，按已有Mask生成细节、ISP、二维光照退化Input与原图GT，YAML配置和固定片段随机参数；无需真实Gaussian。
 
 仓库中的版本用于共享与维护；本机可发现副本位于 `${CODEX_HOME:-$HOME/.codex}/skills/`。创建或修改时同步完整 skill 目录，包括 references、scripts、assets 和元数据，并校验两份目录内容一致。以下命令在仓库根目录执行，将仓库版本同步到本机（若目标已有其他改动，先比较并合并）：
 
