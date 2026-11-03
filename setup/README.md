@@ -16,9 +16,12 @@ bash setup/install_harvester.sh
 bash setup/install_sam3.sh
 bash setup/install_gem_x.sh
 bash setup/install_soma_x.sh
+bash setup/install_wan_vace.sh
 bash setup/install_web.sh
 # 同时准备两个独立环境
 bash setup/install_environments.sh gem_x soma_x
+# Wan2.1-VACE 推理环境
+bash setup/install_environments.sh wan_vace
 ```
 
 统一入口支持 `--prefix`、`--dry-run`、`--reuse` 和 `--help`，
@@ -56,6 +59,7 @@ conda activate "$PWD/.conda/adam-web"
 | `install_sam3.sh` | `adam-sam3` | 3.12 |
 | `install_gem_x.sh` | `adam-gem-x` | 3.12 |
 | `install_soma_x.sh` | `adam-soma-x` | 3.12 |
+| `install_wan_vace.sh` | `adam-wan-vace` | 3.10 |
 | `install_web.sh` | `adam-web` | 3.12 |
 
 模型环境使用 PyTorch 2.10.0、Torchvision 0.25.0、CUDA 12.8 wheels。
@@ -66,6 +70,7 @@ Harvester 还需要 CUDA 兼容的 GCC/G++（上游测试 GCC 10–13），脚�
 GEM-X 安装本地 `third_party/GEM-X` 的 `video,hand` 依赖及 FFmpeg，包含人体/手部 ONNX 检测运行库；不包含可选 Open3D 渲染或训练依赖。安装同时准备 `trimesh>=4.6,<6`、`rtree>=1.3,<2`，供网页的 Gaussian 蒙皮绑定后台任务进行最近三角面查询。
 GEM-X 固定依赖 `py-soma-x==0.3.3`，独立 SOMA-X 环境安装 `third_party/SOMA-X` 当前源码（0.3.4），请勿合并两个环境。
 SOMA-X 脚本安装基础人体与骨架依赖，不安装可选 SMPL/Anny 后端或演示依赖。
+Wan2.1-VACE 使用独立 `<prefix>-wan-vace` 环境（Python 3.10），安装 CUDA 12.8 PyTorch 和本地 `third_party/DiffSynth-Studio` 基础依赖，不安装其量化、训练或日志 extras。模型权重由 `checkpoint/Wan2.1-VACE-14B` 提供；子模块示例默认从 ModelScope 下载模型，使用本机权重时需按 DiffSynth-Studio 的 `ModelConfig` 指向本地路径。安装只验证依赖导入，不下载或运行 14B 权重。
 两者只执行导入检查，不构造模型、不自动下载模型资源。权重路径和来源见 [`checkpoint/README.md`](../checkpoint/README.md)。
 
 网页服务独立环境为 `<prefix>-web`（默认 `adam-web`），仅安装 Python 3.12、NumPy、SciPy，不需要 Torch、CUDA 或模型权重。
@@ -145,7 +150,7 @@ python tools/fix_decord_metadata.py
 ```bash
 python -B -m unittest discover -s tests -p test_setup_helpers.py -v
 bash -n setup/common.sh setup/install_qwen.sh setup/install_harvester.sh setup/install_sam3.sh
-bash -n setup/install_gem_x.sh setup/install_soma_x.sh setup/install_web.sh setup/install_environments.sh
+bash -n setup/install_gem_x.sh setup/install_soma_x.sh setup/install_wan_vace.sh setup/install_web.sh setup/install_environments.sh
 bash setup/install_environments.sh all --dry-run
 ```
 
