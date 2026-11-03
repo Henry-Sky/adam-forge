@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | Qwen | `checkpoint/Qwen-Image-Edit-2511` | `/mnt/data/asset-forge/checkpoints/Qwen-Image-Edit-2511` |
 | Harvester | `checkpoint/asset-harvester` | `/mnt/data/asset-forge/checkpoints/asset-harvester` |
+| Wan2.1-VACE | `checkpoint/Wan2.1-VACE-14B` | `/mnt/data/asset-forge/checkpoints/Wan2.1-VACE-14B` |
 | SAM3 | `checkpoint/sam3` | `/mnt/data/asset-forge/checkpoints/sam3` |
 | GEM-X | `checkpoint/GEM-X` | `/mnt/data/adam-forge/checkpoints/GEM-X` |
 | SOMA-X | `checkpoint/SOMA-X` | `/mnt/data/adam-forge/checkpoints/SOMA-X` |

@@ -7,6 +7,7 @@
 | `checkpoint/sam3` | `third_party/sam3` | [facebookresearch/sam3](https://github.com/facebookresearch/sam3) |
 | `checkpoint/GEM-X` | `third_party/GEM-X` | [NVlabs/GEM-X](https://github.com/NVlabs/GEM-X) |
 | `checkpoint/SOMA-X` | `third_party/SOMA-X` | [NVlabs/SOMA-X](https://github.com/NVlabs/SOMA-X) |
+| `checkpoint/Wan2.1-VACE-14B` | `third_party/DiffSynth-Studio` | [modelscope/DiffSynth-Studio](https://github.com/modelscope/DiffSynth-Studio) |
 
 Fetch the source code and nested submodules after cloning this repository:
 
@@ -15,7 +16,8 @@ git submodule update --init --recursive
 ```
 
 Model weights remain in `checkpoint/`. Follow each upstream repository's
-installation instructions and license terms before use.
+installation instructions and license terms before use. DiffSynth-Studio is the source
+code used with the local Wan2.1-VACE-14B checkpoint.
 
 `GEM-X` provides monocular human body pose and motion estimation using the SOMA
 body model. See [its README](GEM-X/README.md) for installation and inference.

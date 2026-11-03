@@ -13,3 +13,6 @@
 [submodule "third_party/SOMA-X"]
 	path = third_party/SOMA-X
 	url = https://github.com/NVlabs/SOMA-X.git
+[submodule "third_party/DiffSynth-Studio"]
+	path = third_party/DiffSynth-Studio
+	url = https://github.com/modelscope/DiffSynth-Studio
