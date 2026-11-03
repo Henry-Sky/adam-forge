@@ -34,3 +34,4 @@ venv/
 
 !/tests/test_person_degradation.py
 !/tests/test_person_masks.py
+!/tests/test_scene_person_degradation.py

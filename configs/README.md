@@ -25,3 +25,12 @@
 参数范围是初始试验配置，尚未做跨场景视觉调优。二维光照场叠加到原有光照，不进行物理重光照或地面投影阴影生成。详细输入输出、限制和验证命令见 `tools/README.md`。
 
 版本2的组合顺序固定为二维光照 → ISP → detail。detail仅NLM去噪（h=6）与flat（mix=0.3）；旧完整链保存在legacy节，legacy模式权重0且只能独立执行。各模式均须声明legacy布尔字段。版本1配置不再由新入口加载，旧版预览与配置快照可继续用于历史比较。
+
+`person_degradation_detail_medium.yaml` 是中等 detail 强度的独立试验配置：相较默认配置，仅将 `detail.denoise_h` 从6调到10，`detail.flat_mix` 从0.3调到0.55；随机种子、ISP、二维光照和其余参数保持一致。用于对同一人物逐帧比较增强去噪和平滑的效果，默认配置不变。示例：
+
+```bash
+OPENBLAS_NUM_THREADS=1 .conda/adam-gem-x/bin/python -B tools/build_scene_person_degradation.py \
+    --pair-dir data/adam-data/train-data/00000_00057 \
+    --config configs/person_degradation_detail_medium.yaml \
+    --output-dir tests/scene_person_degradation_20261103_00000_00057_detail_medium --threads 64
+```

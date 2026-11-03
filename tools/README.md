@@ -402,3 +402,65 @@ python -B -m unittest discover -s tests -p test_person_degradation.py -v
 测试只写临时目录，覆盖全部模式真实CLI输出、原图GT与Mask保留、背景不变、软alpha单次合成、位置记录、输出不覆盖、可复现采样及非法配置拒绝。
 
 配置版本2明确区分detail与legacy；版本1配置会拒绝加载，避免把旧调色链静默解释为温和detail。`metadata.json`输出格式为`person_degradation_pairs_v2`，`pairs.json.processing_order`记录实际运行的分支。历史JSON入口保持原行为。
+
+## 完整场景人物退化视频
+
+`build_scene_person_degradation.py` 复用对应训练对已有的 SAM3 时序 Mask，从原 JPEG 按 `person_crop/placement.json` 重建人物画布，调用 `degrade_person.py`，再按逐帧坐标贴回完整场景。仅处理指定人物，完整场景 PNG 的 Mask 外像素与原图一致。配置、随机采样和分支顺序沿用 `configs/person_degradation.yaml`；默认强制组合模式 `detail_isp_relighting`（光照 → ISP → 温和detail），每次要求配置只生成一个变体。源数据及其 Mask 不改写。
+
+```bash
+OPENBLAS_NUM_THREADS=1 .conda/adam-gem-x/bin/python -B tools/build_scene_person_degradation.py \
+    --pair-dir data/adam-data/train-data/00000_00057 \
+    --config configs/person_degradation.yaml --mode detail_isp_relighting \
+    --output-dir tests/scene_person_degradation_20261103_00000_00057 --threads 64
+```
+
+输出目录必须不存在。输入要求原 JPEG、scene/crop 二值 Mask、Mask 元数据和 placement 逐帧一致；缺失或不一致时中止。只运行 CPU 退化与编码，复用已有分割结果。参数 `--threads` 默认64；`--mode` 可选配置内其它模式。
+
+- `scene_person_degraded.mp4`：与源 `scene_rgb.mp4` 同尺寸、同帧数、同10 FPS时间轴，使用项目默认编码。有损编码会改变背景像素，精确训练源保存在 `scene_input/*.png`。
+- `scene_person_mask.mp4`：完整场景对应人物二值 Mask，逐帧解码验证与 `scene_mask/*.png` 一致，只有0/255。为满足严格二值要求，覆盖默认 Profile，采用无损H.264 High 4:4:4 Predictive、全范围亮度、yuv420p；部分播放器不支持此Profile。
+- `scene_person_mask_preview.mp4`：项目默认编码的兼容观看版本；有损编码，仅供预览。
+- `person_comparison.mp4` / `.png`、`comparison.jpg` 和 `index.html`：人物原图、退化、Mask及首中末全景对比。
+- `frames.json`、`placement.json`、`metadata.json`、`degradation/`：逐帧来源和哈希、原位坐标、配置快照、实际参数、无损crop Input/GT/Mask及检查结果。
+
+原 JPEG 为未处理GT像素来源；`scene_rgb.mp4` 用于核对场景几何与时间轴。视频压缩差异不视为退化区域。工具不重做或人工精修 SAM3 Mask，也不改变其现有轮廓。
+
+验证命令（测试仅写临时目录）：
+
+```bash
+OPENBLAS_NUM_THREADS=1 .conda/adam-gem-x/bin/python -B -m unittest discover -s tests -p test_scene_person_degradation.py -v
+```
+
+## 批量发布完整场景人物退化
+
+`batch_scene_person_degradation.py` 使用增强detail配置 `configs/person_degradation_detail_medium.yaml`（h=10、flat_mix=0.55），固定组合顺序为光照 → ISP → detail；逐人物稳定采样，同片段内参数固定。原始JPEG和已有SAM3时序Mask直接复用。每个人物目录仅发布以下三个文件，与 `scene_rgb.mp4` 同级：
+
+- `scene_person_degraded.mp4`：增强版人物贴回完整场景，与原视频同尺寸、帧数、10 FPS。
+- `detail_strength_comparison.mp4`：原图 / 温和detail / 增强detail三栏原生crop画布，带标签，必要时仅右/下补齐偶数尺寸；同帧数、10 FPS。温和对照配置来自 `configs/person_degradation.yaml`，工具强制验证两版随机种子、ISP和光照参数一致。
+- `scene_person_degradation.json`：实际采样参数、两份配置快照、来源内容哈希、逐帧原位坐标及平滑焦点框、视频信息和输出哈希。视频按 `configs/README.md` 默认编码；完整场景PNG在编码前检查Mask外像素不变，有损视频不承诺背景逐像素一致。
+
+当前批准的NumPy/SciPy/OpenCV退化链无CUDA实现；采用4个CPU进程、每进程16个计算线程，共64个计算线程，不占用GPU。BLAS/OMP限制为1，OpenCV和随后的视频编码各使用分配给进程的16线程，计算与编码顺序执行；进程管理与I/O辅助线程不计入计算线程预算。
+
+```bash
+# setsid + nohup：退出Codex或终端不终止任务；主机重启或容器停止后需要重启。
+bash tools/start_scene_person_degradation_task.sh
+
+# 指定日志目录恢复；完成且哈希一致的项目自动跳过。
+ADAM_SCENE_DEGRADATION_TASK_DIR=outputs/scene-person-degradation-resume \
+    bash tools/start_scene_person_degradation_task.sh
+```
+
+启动器输出日志目录；`progress.json`记录总数、完成/跳过/失败和主PID，`results.jsonl`记录逐人物结果，`task.log`保存stdout/stderr，`inventory.json`保存本次名单与配置。程序记录失败后继续处理其它人物，最终区分全部成功和带错误完成。每批独占数据根目录 `.scene-person-degradation.lock`，拒绝两批同时发布。JSON最后发布，缺失JSON的部分文件只有存在同配置、同来源的本工具pending记录时才允许恢复；不同来源/配置或非本工具输出不会覆盖。
+
+临时产物位于人物目录中的唯一 `.scene-person-degradation-*` 子目录，以保证跨数据软链接/挂载点时仍能原子重命名；成功后删除临时目录。失败/硬中断可能保留临时目录和pending文件供诊断，最终JSON出现前不应消费该人物输出。原图、原视频、Mask、placement均不改写。计算全部人物后若需新配置重生成，应先审查已有JSON和输出；入口不提供自动强制覆盖。
+
+```bash
+cat outputs/<任务目录>/progress.json
+tail -n 20 outputs/<任务目录>/task.log
+# 停止整批（task.pid为独立会话/进程组ID，包含工作进程与编码子进程）：
+kill -- -"$(cat outputs/<任务目录>/task.pid)"
+
+bash -n tools/start_scene_person_degradation_task.sh
+OPENBLAS_NUM_THREADS=1 .conda/adam-gem-x/bin/python -B -m unittest discover -s tests -p test_scene_person_degradation.py -v
+```
+
+集成测试在临时目录验证移动人物场景对齐、二值Mask无损编码、批量三个文件发布、参数一致、源文件不改写、断点跳过及配置冲突拒绝。
