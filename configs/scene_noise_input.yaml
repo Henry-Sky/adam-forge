@@ -1,0 +1,27 @@
+# scene_rgb -> scene_input，纯 CPU 预处理，不运行 VACE。
+seed: 0
+
+# 场景像素坐标下固定噪点纹理，避免每帧重新抽样导致闪烁。
+noise_temporal_mode: fixed_scene
+
+# 沿用原 SAM3 轮廓外接框，避免并入 2D 标注引入额外波动。
+box_source: sam3
+padding_fraction_per_side: 0.10
+min_padding_px_per_side: 8
+
+# 对中心和尺寸做双向三角平滑；无单向 EMA 的运动滞后。
+# 额外安全余量确保平滑后的框包含当前帧扩展框。
+smoothing_window: 7
+
+# 同步更新 scene_mask.mp4，使白色矩形和噪点覆盖区完全一致。
+update_scene_mask: true
+
+# 输入保持原视频的 YUV420 色彩管线及已有颜色元数据，避免 RGB/gbrp 兼容问题。
+# CRF 10 是高质量有损编码，解码噪点允许少量灰阶；原人物像素已被替换。
+crf: 10
+preset: fast
+
+# 解码验收：远离 Mask 边缘 16 px 的背景区域，不允许系统性色偏。
+validation_guard_px: 16
+max_background_rgb_mae: 2.0
+max_background_channel_bias: 0.5

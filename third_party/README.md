@@ -19,6 +19,13 @@ Model weights remain in `checkpoint/`. Follow each upstream repository's
 installation instructions and license terms before use. DiffSynth-Studio is the source
 code used with the local Wan2.1-VACE-14B checkpoint.
 
+`DiffSynth-Studio` is initialized at pinned commit
+`98a9e478e259a76b473f5dfdcc8442dca8d5bb41` (DiffSynth 2.2.0). Fetch only
+its source with `GIT_LFS_SKIP_SMUDGE=1 git submodule update --init third_party/DiffSynth-Studio`.
+Use `setup/install_wan_vace.sh` for the separate Python 3.10 environment;
+the local-only configuration and explicit GPU integration test are documented in
+[setup/README.md](../setup/README.md#wan21-vace-本地配置与测试).
+
 `GEM-X` provides monocular human body pose and motion estimation using the SOMA
 body model. See [its README](GEM-X/README.md) for installation and inference.
 Use `setup/install_gem_x.sh` for its environment; local weights and matching

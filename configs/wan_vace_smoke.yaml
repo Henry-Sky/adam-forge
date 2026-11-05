@@ -1,0 +1,21 @@
+# 安装后的端到端冒烟检查，非正式人物擦除参数。
+# 路径相对仓库根目录；视频和 Mask 文件名相对 pair_dir。
+model_dir: checkpoint/Wan2.1-VACE-14B
+pair_dir: data/adam-data/train-data/adam-00000-00057
+video: scene_liner.mp4
+mask: scene_mask.mp4
+
+# 小尺寸短序列用于快速检查；宽高须为 16 的倍数，帧数须为 4n+1。
+width: 384
+height: 256
+num_frames: 9
+num_inference_steps: 4
+cfg_scale: 5.0
+seed: 0
+threads: 64
+
+# 冒烟测试沿用原安装验证提示词；正式擦除用 wan_vace_background.yaml。
+prompt: >-
+  A pedestrian walking naturally in a realistic street scene, consistent lighting and camera motion.
+negative_prompt: >-
+  distorted anatomy, extra limbs, blurry, text, watermark

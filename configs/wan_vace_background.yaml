@@ -1,0 +1,30 @@
+# 路径相对仓库根目录；仅使用本地权重，不自动下载。
+model_dir: checkpoint/Wan2.1-VACE-14B
+
+# 同目录的条件视频和遮罩，可改为 scene_liner.mp4 对比旧方案。
+video: scene_input.mp4
+mask: scene_mask.mp4
+
+# 保留整段原分辨率；模型输入仅在右侧/底部补至 16 的倍数。
+# scene_input.mp4 为噪点条件视频，scene_mask.mp4 白色区域为重绘区。
+num_inference_steps: 30
+cfg_scale: 5.0
+cfg_merge: false  # 分开计算正/负条件，降低显存峰值。
+vace_scale: 1.0
+sigma_shift: 5.0
+seed: 0  # 固定种子，便于复现。
+
+# VAE 空间分块；tile_size / tile_stride 使用 latent 空间尺寸。
+tiled: true
+tile_size: [30, 52]
+tile_stride: [15, 26]
+
+# 输出 scene_background.mp4；编码格式遵循 configs/README.md。
+# 生成结果仅在白色 Mask 内贴回 scene_rgb，Mask 外编码前保持原样。
+crf: 18
+
+# 描述自然延续的背景，避免使用“行人行走”等重新生成人物的描述。
+prompt: >-
+  A realistic continuous background scene. The surrounding background extends naturally through the selected area, with consistent geometry, textures, perspective, lighting and original camera motion. The edited area contains only background scenery. Preserve all unmasked people, vehicles and objects.
+negative_prompt: >-
+  human figure in the edited area, human silhouette, body parts, ghosting, smeared textures, warped geometry, flickering, blurry patches, text, watermark

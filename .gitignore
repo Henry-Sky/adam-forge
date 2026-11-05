@@ -35,3 +35,7 @@ venv/
 !/tests/test_person_degradation.py
 !/tests/test_person_masks.py
 !/tests/test_scene_person_degradation.py
+!/tests/test_linear_inpaint.py
+!/tests/test_wan_vace.py
+!/tests/test_vace_background.py
+!/tests/test_person_noise.py

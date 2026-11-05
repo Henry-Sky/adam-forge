@@ -16,6 +16,25 @@ SPEC.loader.exec_module(FIX)
 
 
 class SetupHelpersTest(unittest.TestCase):
+    def test_torch_complete_local_bundle_does_not_contact_indexes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = '''source setup/common.sh
+export ADAM_PIP_WHEELHOUSE="$1" CONDA_PREFIX="$1"
+python() { printf 'python'; printf ' %s' "$@"; printf '\\n'; }
+reachable() { printf 'unexpected network\\n'; return 99; }
+pip_at() { printf 'unexpected pip index\\n'; return 99; }
+run() { if [[ "$1" == env ]]; then shift; while [[ "$1" != python ]]; do shift; done; fi; "$@"; }
+install_torch
+'''
+            result = subprocess.run(['bash', '-c', script, 'test', str(root)],
+                                    cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('--no-index --find-links', result.stdout)
+            self.assertNotIn('unexpected', result.stdout)
+            self.assertEqual((root/'adam-torch-constraints.txt').read_text(),
+                             'torch==2.10.0+cu128\ntorchvision==0.25.0+cu128\n')
+
     def test_local_wheels_preserve_selected_index_and_ignore_inherited_sources(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

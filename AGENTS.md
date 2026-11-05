@@ -38,6 +38,8 @@ When creating or updating a skill for this project, synchronize the complete ski
 
 Refer to `data/README.md` and `checkpoint/README.md` for recorded symlinks and their external sources. Use repository-relative paths and verify targets exist before use. Links and target contents are ignored by Git. Update the corresponding README when authorized link changes occur; do not replace existing links or add unrecorded links automatically.
 
+`data/adam-data/train-data/` is a mixed dataset for person degradation and person reconstruction. Unprefixed clip/object directories (`<clip_id>_<obj_id>` in the existing dataset, corresponding to `{clip id}-{obj id}`) are person degradation samples; `adam-<clip_id>-<obj_id>` directories are person reconstruction samples. Preserve five-digit clip and object IDs, select samples according to the intended task, and do not count reconstruction copies as independent degradation samples. See `data/README.md` for dataset details.
+
 ## Default Video Format
 
 Use the default video encoding format documented in `configs/README.md` for project video outputs unless a task explicitly requires otherwise. Resolution is unrestricted. Reference that document rather than duplicating encoding parameters here.

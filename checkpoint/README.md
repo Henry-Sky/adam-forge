@@ -13,9 +13,17 @@
 | GEM-X | `checkpoint/GEM-X` | `/mnt/data/adam-forge/checkpoints/GEM-X` |
 | SOMA-X | `checkpoint/SOMA-X` | `/mnt/data/adam-forge/checkpoints/SOMA-X` |
 
-当前工作区已创建以上五个软链接，目标目录均存在。不要把模型文件复制进仓库。
+当前工作区已创建以上六个软链接，目标目录均存在。不要把模型文件复制进仓库。
 
 软链接及模型权重由 `.gitignore` 排除，此目录仅跟踪本 README。以上链接依赖本机外部存储；请将目标目录作为只读模型来源使用。
+
+## Wan2.1-VACE-14B 资源
+
+2026-11-05 补齐 `checkpoint/Wan2.1-VACE-14B` 软链接，复用既有 `/mnt/data/asset-forge/checkpoints/Wan2.1-VACE-14B`，没有重新下载或修改权重。目录包含七个 `diffusion_pytorch_model-0000*-of-00007.safetensors`、索引 JSON、`models_t5_umt5-xxl-enc-bf16.pth`、`Wan2.1_VAE.pth` 及 `google/umt5-xxl/` tokenizer。与官方 [Wan-AI/Wan2.1-VACE-14B](https://modelscope.cn/models/Wan-AI/Wan2.1-VACE-14B) 布局对应，本次未追溯既有缓存的下载 revision 或上游哈希。
+
+本地结构检查核对全部 1,331 个张量的分片索引、shape、dtype、数据区偏移与文件完整长度，不等同于上游 SHA-256 校验。现有索引的 `metadata.total_size` 为全 FP32 等价大小 69,350,371,584 字节；实际前六片为 FP32，末片为 BF16，真实张量合计 63,252,168,960 字节，两者差值来自末片精度；所有索引键均匹配。保留上游文件原样，并在测试报告中记录该差异。
+
+使用本地 `ModelConfig(path=...)` 并禁用自动下载，避免上游默认示例额外拉取通用转换权重。环境、配置和 `tests/` 冒烟推理命令见 [`setup/README.md`](../setup/README.md#wan21-vace-本地配置与测试)。
 
 ## GEM-X 与 SOMA-X 资源
 

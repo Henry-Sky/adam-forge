@@ -1,5 +1,97 @@
 # 独立工具
 
+## 人物矩形噪点输入与稳定遮罩
+
+`build_scene_noise_inputs.py`（实现位于 `refine_scene_noise_inputs.py`）从 `scene_rgb.mp4` 的原生 YUV420 数据生成 `scene_input.mp4`，并同步更新 `scene_mask.mp4`。参数位于带注释的 `configs/scene_noise_input.yaml`，只处理显式选择的 `adam-*` 目录，不运行 VACE。
+
+逐帧使用人物原 SAM3 外接框，四边各扩展 10%、至少 8 像素。用 7 帧居中三角窗口平滑中心和半尺寸，端点以速度外推避免单向滞后；安全余量确保仍包含当前帧扩展框，向外取偶数坐标对齐 YUV420 色度块。平滑旨在减少高频跳动，保留人物和相机的真实运动。日志记录原始框、扩展框、最终框，以及中心/尺寸二阶差分指标。
+
+噪点采用固定场景坐标纹理：相同 clip/obj/seed 下，重叠区域的随机图案不逐帧变化，降低闪烁。有限范围视频中 Y 为 16/235、U/V 为 128；帧内矩形外的原始 YUV 字节不修改。输入按项目默认 H.264 High/4.0、yuv420p、10 FPS、无音轨编码，CRF 10，并保留源视频已有的颜色元数据；源未指定的色彩矩阵也不擅自添加。它是高质量有损编码，解码噪点允许少量灰阶，不再承诺严格 0/255 RGB。
+
+旧 v1 使用 libx264rgb/gbrp，虽然 FFmpeg 解码逐像素相等，但与原视频格式不同，可能引起播放器色彩解释差异；当前入口已切换至 YUV 管线。新版实际解码检查帧数、尺寸、Profile、像素格式、颜色元数据，并在距 Mask 边缘 16 px 之外统计背景 RGB MAE 与通道平均偏差（默认阈值分别为 2.0 和 0.5，单位为 8-bit 级别）。遮罩继续使用无损 H.264 High 4:4:4 Predictive/yuv420p，全部帧解码检查严格 0/255，且白框与噪点覆盖区完全一致。
+
+先在忽略的任务目录生成并验收候选视频、配置快照、逐帧记录、色差统计、预览和旧文件备份；通过后再发布。第二步修改外部数据目录，须已获用户授权：
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 .conda/adam-wan-vace/bin/python -u -B tools/build_scene_noise_inputs.py \
+    --pair-id adam-00000-00057 --pair-id adam-00000-00067 --pair-id adam-00000-00184 \
+    --config configs/scene_noise_input.yaml --workers 3 --encoder-threads 20 \
+    --previous-report outputs/scene-noise-input-clip00000-20261105 \
+    --task-dir outputs/scene-noise-input-clip00000-yuv-stable-v3-20261105
+
+.conda/adam-wan-vace/bin/python -u -B tools/build_scene_noise_inputs.py \
+    --publish-ready --task-dir outputs/scene-noise-input-clip00000-yuv-stable-v3-20261105
+
+.conda/adam-wan-vace/bin/python -B -m unittest discover -s tests -p test_person_noise.py -v
+```
+
+`--train-root` 可指定数据根目录，`--pair-id` 可重复，生成任务目录须不存在。`--previous-report` 可选，仅用于显示原红框和新绿框。发布前核对源视频、旧目标和候选的 SHA-256，防止覆盖期间发生外部修改；每对仅替换两个派生 MP4，旧版保存在任务目录的 `previous/`。原 JPEG、scene_rgb、SAM3 PNG 和 placement 均不改动。预览和日志都在 `outputs/`；旧 `scene_background.mp4` 仍为上一轮试验，未按新 Mask 重跑。
+
+单元测试只用内存合成数据，验证人物信息被替换、YUV 框外字节保留、固定噪点一致性、扩边/平滑覆盖保证及边界裁切。
+
+## VACE 指定人物擦除与完整场景背景视频
+
+`build_scene_background.py` 使用 `.conda/adam-wan-vace`，默认以 `scene_input.mp4` 为 `vace_video`、`scene_mask.mp4` 为 `vace_video_mask`（均由 YAML 的 `video` / `mask` 指定），按 `configs/wan_vace_background.yaml` 的背景补全提示词移除指定人物。仅匹配显式 `--pair-id adam-<五位clip>-<五位obj>`，没有自动处理全部目录的默认行为。仅从 `checkpoint/Wan2.1-VACE-14B` 加载本地权重，禁用在线下载。
+
+一个 GPU 一个常驻模型进程；通过 `spawn` 启动，在导入 Torch 前限定可见 GPU。总 CPU 线程按 worker 均分，FFmpeg 编码另限一线程；同时最多两个 worker 加载权重以降低主存/IO 峰值。多于 GPU 数的任务按图像面积降序、轮询分配，每卡复用模型串行处理。异常记录后继续该卡其余任务，整批有失败则非零退出。脚本不自动改变分辨率或步数；覆盖已有结果须显式指定 `--overwrite`。
+
+须在沙箱外执行，且已获向数据目录写入派生视频的授权。clip 0 三样本示例：
+
+```bash
+.conda/adam-wan-vace/bin/python -u -B tools/build_scene_background.py \
+    --pair-id adam-00000-00057 --pair-id adam-00000-00067 --pair-id adam-00000-00184 \
+    --gpus 7 3 6 --threads 64 --overwrite \
+    --task-dir outputs/vace-erase-clip00000-noise-stable-20261105
+```
+
+`--config` 指定带注释的 YAML 配置，`--train-root` 指定数据根目录。输出任务目录必须不存在；默认拒绝已有 `scene_background.mp4`，显式 `--overwrite` 则先复制旧视频到任务目录各样本的 `previous_scene_background.mp4` 并核对 SHA-256。视频输入必须同尺寸、同帧数、10 FPS，帧数为 4n+1。Mask 按灰度解码并检查二值；保留全段原尺寸，补边到 16 的倍数供模型处理。生成结果裁回后，仅在二值 Mask 内替换原 RGB 视频帧；不做羽化。Mask 外像素在编码前逐帧验证一致，有损重编码后可能存在数值差异。矩形 Mask 内的其他物体也属于可重绘区域；阴影在 Mask 外时会保留。
+
+每个数据目录最终仅新增或更新 `scene_background.mp4`，实际解码核对尺寸、帧数、帧率及默认视频格式后发布。新建使用排他硬链接；覆盖模式在同一数据文件系统编码临时文件，确认输入与旧目标 SHA-256 未变后调用 `os.replace` 原子替换，整个推理与校验阶段旧视频保持可用，失败保留旧版。编码期间的隐藏临时 MP4 在发布或失败后清理。所有其他产物写入独立 `--task-dir`：`run.json` 参数及分卡信息、`gpu-*.log/json` 每卡日志及环境版本、`progress.json` 总状态、各样本子目录的 `report.json` 和首/中/末帧局部 `preview.jpg`。报告记录输入/输出 SHA-256、补边尺寸、提示词、种子、分步进度、耗时、显存和异常。前台任务依赖启动会话；中断会终止子进程，任务目录保留供诊断，重试应选择尚无输出的 ID 及新任务目录。
+
+```bash
+.conda/adam-wan-vace/bin/python -B -m unittest discover -s tests -p test_vace_background.py -v
+cat outputs/vace-erase-clip00000-noise-stable-20261105/progress.json
+```
+
+单元测试使用内存合成图和临时目录，覆盖原生补边、Mask 补黑、其他人物像素保留、非二值拒绝、原子替换、替换失败保留旧版及外部改写拒绝；实际视频另做解码验证。
+
+以旧 scene_liner 为条件的 clip 0 首轮三组实际试验已完成，原分辨率单样本推理约 30–42 分钟、峰值分配显存约 55–57 GiB；这些时长受并行进程及设备负载影响。视频技术校验通过不表示擦除语义成功。首/中/末帧人工抽查中，`00057` 为部分去除，`00067`、`00184` 明显保留人形，详见任务目录的 `quality_review.json`，暂不扩跑。本地 VACE 会同时编码 Mask 内的输入为 reactive 条件，插值人形可能继续影响生成，需要单独对比中性填充和 Mask 覆盖范围后再判断。
+
+## 人物重建场景线性环境覆盖视频
+
+`build_scene_liner.py` 为 `adam-<clip_id>-<obj_id>/` 新增 `scene_liner.mp4`。解码同目录 `scene_rgb.mp4`，按 `sam3_mask/scene/*.png` 选中的人物轮廓区域覆盖人物：以 Mask 外一像素的八邻域背景环为采样点，Delaunay 三角网格内对 RGB 做分片线性插值；触及图像边缘等位于采样点凸包外的像素，使用最近边缘颜色回退。Mask 不膨胀，轮廓中的背景孔洞保留。这是环境颜色插值，不保证恢复被遮挡的真实背景。
+
+依赖已有 `adam-gem-x` 环境的 NumPy、SciPy、Pillow 和 FFmpeg，无新增依赖。采用 [`configs/README.md`](../configs/README.md) 的默认编码，CRF 18，尺寸/帧数/10 FPS 与源视频一致。逐帧验证编码前 Mask 外 RGB 与解码源完全相同；有损重编码后的像素可能有小幅差异。输出实际解码检查帧数、尺寸和格式后发布；空 Mask、已有输出或报告会报错。原视频、Mask 和内部 manifest 不改写。
+
+下列命令向外部数据目标写入派生文件，须已获用户授权。16 个任务各用一个插值线程和三个编码线程，BLAS 限为一线程：
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 .conda/adam-gem-x/bin/python tools/build_scene_liner.py \
+    --train-root data/adam-data/train-data --workers 16 --encoder-threads 3 \
+    --report outputs/person_pixel_distribution_20261105/scene_liner_report.json
+
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 .conda/adam-gem-x/bin/python -B \
+    -m unittest discover -s tests -p test_linear_inpaint.py -v
+```
+
+默认处理所有五位编号 `adam-*` 目录；重复 `--pair-id` 可选指定目录，`--ffmpeg` 和 `--ffprobe` 可改工具路径。报告保存逐帧覆盖面积、边缘采样数、最近邻回退像素数及背景一致性检查。测试仅用内存中的合成图验证线性渐变恢复、背景保留、边缘回退、分离区域及无背景拒绝。
+
+## 人物重建场景矩形遮罩视频
+
+`build_scene_box_masks.py` 为 `data/adam-data/train-data/adam-<clip_id>-<obj_id>/` 新增 `scene_mask.mp4`。读取对应人物的 `sam3_mask/scene/*.png`，逐帧取非零像素最小外接矩形并填白（255），其余为黑（0）；不是人物轮廓遮罩，也不是包含背景余量的 crop 框。视频尺寸、帧数及帧率与同目录 `scene_rgb.mp4` 一致。空 Mask 会报错，不替换为猜测框。源文件和内部 manifest 不改写。
+
+依赖已有 `adam-gem-x` 环境的 Pillow 和 FFmpeg，不新增依赖。遵循 [`configs/README.md`](../configs/README.md) 的 MP4/H.264、yuv420p、无音轨约定；为严格保留二值像素，使用无损 CRF 0 及其要求的 High 4:4:4 Predictive Profile，替代默认 High Profile（像素格式仍为 yuv420p）。每个输出实际解码为灰度，与预期矩形逐像素比较，确保只含 0/255；同时核对尺寸、帧数和帧率，再发布完整文件。已有视频或报告会拒绝覆盖。
+
+此命令会向数据软链接的外部目标写入派生文件，须已获用户授权：
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 .conda/adam-gem-x/bin/python tools/build_scene_box_masks.py \
+    --train-root data/adam-data/train-data --workers 16 --encoder-threads 4 \
+    --report outputs/person_pixel_distribution_20261105/scene_mask_report.json
+```
+
+默认处理全部 `adam-五位clip_id-五位obj_id` 目录，16 个任务各用 4 个编码线程；可重复指定 `--pair-id adam-00000-00057` 选择目录。`--ffmpeg`、`--ffprobe` 可指定工具路径。报告记录逐帧左闭右开 `boxes_xyxy`、视频参数、完成/失败项和像素校验结果。CLI 检查：`.conda/adam-gem-x/bin/python tools/build_scene_box_masks.py --help`。
+
 ## SAM3 按人物 ID 批量生成 mask
 
 `build_person_masks.py` 使用现有 `adam-sam3` 环境与本地 `checkpoint/sam3/sam3.pt`，无新增依赖或下载。当前为 `sam3-jpeg-sequence-temporal-v2`：按帧序读取每对 `scene_rgb/*.jpg`，按已有 placement 放入固定尺寸人物 crop 画布，将全部 PIL 图像作为视频序列传入 `build_sam3_video_model`。不读取 MP4，不重新编码 JPEG，保留源 JPEG 解码后的像素；模型内部执行其标准缩放。**不是逐帧独立分割**，非锚点帧通过 SAM3 视频 tracker 的时序记忆传播。

@@ -135,18 +135,32 @@ prepare_env() {
 
 install_torch() {
     local mirror pip_mirror installed=0
+    # A remote candidate may outrank an identical --find-links wheel. Attempt
+    # the complete local bundle offline first to avoid re-downloading CUDA.
+    if [[ -n "${ADAM_PIP_WHEELHOUSE:-}" ]]; then
+        [[ -d "$ADAM_PIP_WHEELHOUSE" ]] || fail "Missing wheel cache: $ADAM_PIP_WHEELHOUSE"
+        if run env -u PIP_EXTRA_INDEX_URL -u PIP_FIND_LINKS PIP_CONFIG_FILE=/dev/null \
+            python -m pip --disable-pip-version-check install --no-index \
+            --find-links "$ADAM_PIP_WHEELHOUSE" 'torch==2.10.0+cu128' 'torchvision==0.25.0+cu128'; then
+            installed=1
+        else
+            warn 'Local PyTorch wheel bundle incomplete; trying domestic sources'
+        fi
+    fi
     # Try both ordinary PyPI mirrors too: CUDA wheels have dependencies hosted there.
-    for mirror in "${TORCH_MIRRORS[@]}"; do
-        if ! reachable "$mirror/torch/"; then continue; fi
-        for pip_mirror in "${PIP_MIRRORS[@]}"; do
-            if ! reachable "$pip_mirror/"; then continue; fi
-            if pip_at "$mirror" 'torch==2.10.0+cu128' 'torchvision==0.25.0+cu128' --extra-index-url "$pip_mirror"; then
-                installed=1; break
-            fi
-            warn "PyTorch install failed via $mirror with $pip_mirror; trying next source"
+    if (( ! installed )); then
+        for mirror in "${TORCH_MIRRORS[@]}"; do
+            if ! reachable "$mirror/torch/"; then continue; fi
+            for pip_mirror in "${PIP_MIRRORS[@]}"; do
+                if ! reachable "$pip_mirror/"; then continue; fi
+                if pip_at "$mirror" 'torch==2.10.0+cu128' 'torchvision==0.25.0+cu128' --extra-index-url "$pip_mirror"; then
+                    installed=1; break
+                fi
+                warn "PyTorch install failed via $mirror with $pip_mirror; trying next source"
+            done
+            if (( installed )); then break; fi
         done
-        if (( installed )); then break; fi
-    done
+    fi
     if (( ! installed )); then
         warn 'Both domestic PyTorch sources failed; falling back to official PyTorch cu128 and PyPI'
         reachable https://download.pytorch.org/whl/cu128/torch/ || fail 'Official PyTorch source is unreachable'
